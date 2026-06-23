@@ -24,6 +24,8 @@ export function createTileGeometry(tx, ty, image, atlas = APP_CONFIG.tileAtlas) 
     ),
   );
   geometry.setAttribute('uv', new THREE.Float32BufferAttribute([u0, vBottom, u1, vBottom, u1, vTop, u0, vTop], 2));
+  geometry.setAttribute('aTileUvMin', new THREE.Float32BufferAttribute([u0, vBottom, u0, vBottom, u0, vBottom, u0, vBottom], 2));
+  geometry.setAttribute('aTileUvMax', new THREE.Float32BufferAttribute([u1, vTop, u1, vTop, u1, vTop, u1, vTop], 2));
   geometry.setIndex([0, 1, 2, 0, 2, 3]);
   geometry.computeBoundingSphere();
   return geometry;

@@ -29,5 +29,5 @@ export default function TileBatch({ group, image, material }) {
     [geometry],
   );
 
-  return <instancedMesh ref={meshRef} args={[geometry, material, group.count]} frustumCulled={false} />;
+  return <instancedMesh ref={meshRef} args={[geometry, material, group.count]} material={material} frustumCulled={false} />;
 }

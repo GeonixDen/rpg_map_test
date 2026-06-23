@@ -10,6 +10,7 @@ import MapBounds from './layers/MapBounds.jsx';
 import OverviewLayer from './layers/OverviewLayer.jsx';
 import TransitionLabelsLayer from './layers/TransitionLabelsLayer.jsx';
 import TileChunk from './layers/TileChunk.jsx';
+import { createTreeSwayMaterial, updateTreeSwayMaterial } from './materials/createTreeSwayMaterial.js';
 
 export default function TileLayer({ map, mapsDict, model, showTransitionLabels, onRenderStats }) {
   const texture = useTexture(APP_CONFIG.data.tilesetUrl);
@@ -35,8 +36,10 @@ export default function TileLayer({ map, mapsDict, model, showTransitionLabels, 
       }),
     [texture],
   );
+  const treeMaterial = useMemo(() => createTreeSwayMaterial(texture), [texture]);
 
   useEffect(() => () => material.dispose(), [material]);
+  useEffect(() => () => treeMaterial.dispose(), [treeMaterial]);
 
   useEffect(() => {
     setRange(null);
@@ -45,7 +48,7 @@ export default function TileLayer({ map, mapsDict, model, showTransitionLabels, 
     lastModeRef.current = 'chunks';
   }, [model]);
 
-  useFrame(() => {
+  useFrame(({ clock }) => {
     const { lod } = APP_CONFIG;
     const nextMode =
       lastModeRef.current === 'overview'
@@ -68,9 +71,25 @@ export default function TileLayer({ map, mapsDict, model, showTransitionLabels, 
       lastRangeKeyRef.current = nextRange.key;
       setRange(nextRange);
     }
+
+    updateTreeSwayMaterial(treeMaterial, clock.elapsedTime);
   });
 
   const visibleChunks = useMemo(() => chunksForRange(model, range), [model, range]);
+  const visibleTreeInstances = useMemo(
+    () =>
+      visibleChunks.reduce(
+        (sum, chunk) =>
+          sum + chunk.groups.reduce((chunkSum, group) => chunkSum + (group.canSway ? group.count : 0), 0),
+        0,
+      ),
+    [visibleChunks],
+  );
+  const animateTreeSway =
+    APP_CONFIG.treeSway.enabled &&
+    visibleTreeInstances > 0 &&
+    visibleTreeInstances <= APP_CONFIG.treeSway.maxAnimatedInstances &&
+    mode === 'chunks';
   const [spring] = useSpring(
     () => ({
       from: { scale: 0.96 },
@@ -94,7 +113,14 @@ export default function TileLayer({ map, mapsDict, model, showTransitionLabels, 
       <OverviewLayer map={map} model={model} atlasImage={texture.image} visible={mode === 'overview'} />
       <a.group scale={spring.scale.to((value) => [value, value, 1])} visible={mode === 'chunks'}>
         {visibleChunks.map((chunk) => (
-          <TileChunk key={chunk.id} chunk={chunk} image={texture.image} material={material} />
+          <TileChunk
+            key={chunk.id}
+            chunk={chunk}
+            image={texture.image}
+            material={material}
+            treeMaterial={treeMaterial}
+            animateTreeSway={animateTreeSway}
+          />
         ))}
         <MapBounds dimensions={model.dimensions} />
       </a.group>

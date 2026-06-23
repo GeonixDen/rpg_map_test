@@ -112,8 +112,8 @@ export const APP_CONFIG = {
 
   edgeFog: {
     enabled: true,
-    innerFadeTiles: 2.1,
-    outerFadeTiles: 3.2,
+    innerFadeTiles: 2,
+    outerFadeTiles: 10,
     z: 0.18,
     opacity: 1,
     color: '#0b0d0e',
@@ -125,6 +125,37 @@ export const APP_CONFIG = {
       driftScale: 0.38,
       mistStrength: 0.24,
     },
+  },
+
+  treeSway: {
+    enabled: true,
+    tileCoords: [
+      [0, 1],
+      [1, 1],
+      [2, 1],
+      [3, 1],
+      [4, 1],
+      [5, 1],
+      [0, 2],
+      [1, 2],
+      [0, 3],
+      [1, 3],
+      [2, 3],
+      [3, 3],
+      [0, 4],
+      [1, 4],
+      [0, 5],
+      [2, 5],
+      [3, 5],
+      [5, 5],
+      [6, 5],
+    ],
+    maxAnimatedInstances: 12000,
+    amplitudeTiles: 0.035,
+    liftTiles: 0.006,
+    speed: 1.35,
+    phaseScale: 0.47,
+    trunkAnchor: -0.24,
   },
 
   mapBounds: {

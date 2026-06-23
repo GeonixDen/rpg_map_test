@@ -38,6 +38,7 @@ export function buildChunkModel(map, chunkSize = APP_CONFIG.mapModel.chunkSize) 
   const chunksByCoord = new Map();
   const unknownByEmoji = new Map();
   const tileCountByKey = new Map();
+  const treeSwayTileKeys = new Set((APP_CONFIG.treeSway.tileCoords || []).map(([tx, ty]) => `${tx},${ty}`));
   const fallback = resolveEmojiTile(APP_CONFIG.mapModel.fallbackEmoji, 0, 0, mapType) || [0, 10];
 
   for (let y = 0; y < layout.length; y += 1) {
@@ -68,15 +69,19 @@ export function buildChunkModel(map, chunkSize = APP_CONFIG.mapModel.chunkSize) 
       }
 
       const tileKey = `${coords[0]},${coords[1]}`;
-      let group = chunk.groups.get(tileKey);
+      const canSway = treeSwayTileKeys.has(tileKey);
+      const groupKey = `${tileKey}|${canSway ? 'sway' : 'static'}`;
+      let group = chunk.groups.get(groupKey);
       if (!group) {
         group = {
+          id: groupKey,
           tileKey,
           tx: coords[0],
           ty: coords[1],
+          canSway,
           positions: [],
         };
-        chunk.groups.set(tileKey, group);
+        chunk.groups.set(groupKey, group);
       }
 
       const world = tileToWorld(x, y, dimensions);
