@@ -63,9 +63,12 @@ function drawSteppedPath(ctx, points) {
 
 export function createTransitionBadgeTexture(name, style = APP_CONFIG.transitionLabels.badge) {
   const label = ` ${String(name ?? 'Без названия')}`.trim();
+  const textureScale = Math.max(1, Math.min(4, Number(style.textureScale) || 1));
+  const fontWeight = style.fontWeight || 700;
+  const fontFamily = '"JetBrains Mono", "PT Mono", "Cascadia Mono", Consolas, monospace';
   const measureCanvas = document.createElement('canvas');
   const measureCtx = measureCanvas.getContext('2d');
-  measureCtx.font = `${style.fontSize}px "JetBrains Mono", "PT Mono", "Cascadia Mono", Consolas, monospace`;
+  measureCtx.font = `${fontWeight} ${style.fontSize}px ${fontFamily}`;
 
   const textW = Math.round(measureCtx.measureText(label).width || label.length * style.fontSize * 0.58);
   let w = Math.max(style.minW, textW + style.padX * 2);
@@ -78,10 +81,12 @@ export function createTransitionBadgeTexture(name, style = APP_CONFIG.transition
   const points = steppedPoints(w, h, cut, style.px);
 
   const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
+  canvas.width = Math.ceil(w * textureScale);
+  canvas.height = Math.ceil(h * textureScale);
   const ctx = canvas.getContext('2d');
-  ctx.imageSmoothingEnabled = false;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.scale(textureScale, textureScale);
 
   drawSteppedPath(ctx, points);
   ctx.fillStyle = style.background;
@@ -128,16 +133,27 @@ export function createTransitionBadgeTexture(name, style = APP_CONFIG.transition
     ctx.globalAlpha = 1;
   }
 
-  ctx.font = `${style.fontSize}px "JetBrains Mono", "PT Mono", "Cascadia Mono", Consolas, monospace`;
+  ctx.font = `${fontWeight} ${style.fontSize}px ${fontFamily}`;
   ctx.fillStyle = style.textColor;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  if (style.textShadowColor) {
+    ctx.shadowColor = style.textShadowColor;
+    ctx.shadowBlur = 2.5;
+    ctx.shadowOffsetY = 1;
+  }
+  if (style.textStrokeWidth > 0) {
+    ctx.strokeStyle = style.textStrokeColor || 'rgba(0,0,0,0.7)';
+    ctx.lineWidth = style.textStrokeWidth;
+    ctx.strokeText(label, Math.floor(w / 2), Math.floor(h / 2));
+  }
   ctx.fillText(label, Math.floor(w / 2), Math.floor(h / 2));
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.magFilter = THREE.NearestFilter;
-  texture.minFilter = THREE.NearestFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearFilter;
   texture.generateMipmaps = false;
   texture.needsUpdate = true;
 

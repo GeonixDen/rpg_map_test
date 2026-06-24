@@ -1,10 +1,10 @@
-import React, { useLayoutEffect, useMemo, useRef } from 'react';
+import React, { memo, useLayoutEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { createTileGeometry } from '../tileGeometry.js';
 
 const tempObject = new THREE.Object3D();
 
-export default function TileBatch({ group, image, material }) {
+function TileBatch({ group, image, material }) {
   const meshRef = useRef(null);
   const geometry = useMemo(() => createTileGeometry(group.tx, group.ty, image), [group.tx, group.ty, image]);
 
@@ -31,3 +31,5 @@ export default function TileBatch({ group, image, material }) {
 
   return <instancedMesh ref={meshRef} args={[geometry, material, group.count]} material={material} frustumCulled={false} />;
 }
+
+export default memo(TileBatch);

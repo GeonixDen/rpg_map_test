@@ -1,102 +1,44 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Focus, Route } from 'lucide-react';
-import { APP_CONFIG } from '../config/appConfig.js';
-import { createMapEntries } from '../data/mapEntries.js';
-import { useMapsData } from '../data/useMapsData.js';
+import { Map as MapIcon, Route, SlidersHorizontal } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import MapScene from '../scene/MapScene.jsx';
-import { buildChunkModel } from '../utils/mapModel.js';
+import { useMapDemoStore } from '../store/mapDemoStore.js';
+import { buildChunkModel, tileToWorld } from '../utils/mapModel.js';
 import { formatNumber } from '../utils/format.js';
+import DialogModal from './DialogModal.jsx';
+import MapKeyboardPanel from './MapKeyboardPanel.jsx';
+import ToastStack from './ToastStack.jsx';
 
-export default function App() {
-  const { loading, maps, error } = useMapsData();
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [fitSignal, setFitSignal] = useState(0);
-  const [cameraDistance, setCameraDistance] = useState(APP_CONFIG.camera.distance.default);
-  const [clickedTile, setClickedTile] = useState(null);
-  const [focusTarget, setFocusTarget] = useState(null);
-  const [showTransitionLabels, setShowTransitionLabels] = useState(APP_CONFIG.transitionLabels.visibleByDefault);
-  const [renderStats, setRenderStats] = useState({
-    mode: 'chunks',
-    visibleChunks: 0,
-    totalChunks: 0,
-  });
+const EMPTY_ARRAY = Object.freeze([]);
+const EMPTY_OBJECT = Object.freeze({});
 
-  const mapEntries = useMemo(() => createMapEntries(maps), [maps]);
-
-  useEffect(() => {
-    if (selectedIndex >= mapEntries.length) setSelectedIndex(0);
-  }, [mapEntries.length, selectedIndex]);
-
-  const selected = mapEntries[selectedIndex] || null;
-  const model = useMemo(() => (selected ? buildChunkModel(selected.map) : null), [selected]);
-
-  useEffect(() => {
-    setFitSignal((value) => value + 1);
-    setClickedTile(null);
-    setFocusTarget(null);
-  }, [selected?.id]);
-
-  const goToMap = (nextIndex) => {
-    if (!mapEntries.length) return;
-    setSelectedIndex((nextIndex + mapEntries.length) % mapEntries.length);
-  };
-
-  if (loading) {
-    return <div className="app-status">Загрузка карт...</div>;
-  }
-
-  if (error || !selected || !model) {
-    return <div className="app-status">Не удалось загрузить карты: {error?.message || 'пустой список'}</div>;
-  }
+function DemoPanels({
+  selected,
+  model,
+  serverPlayer,
+  live,
+  liveLabel,
+  showTransitionLabels,
+  setShowTransitionLabels,
+}) {
+  const renderStats = useMapDemoStore((state) => state.renderStats);
 
   return (
-    <main className="app-shell">
+    <>
       <div className="map-toolbar">
         <div className="map-toolbar__main">
-          <button className="icon-button" type="button" onClick={() => goToMap(selectedIndex - 1)} title="Предыдущая карта">
-            <ChevronLeft size={18} />
-          </button>
-          <select
-            className="map-select"
-            value={selected.id}
-            onChange={(event) => {
-              const index = mapEntries.findIndex((entry) => entry.id === event.target.value);
-              if (index >= 0) setSelectedIndex(index);
-            }}
-          >
-            {mapEntries.map((entry) => (
-              <option key={entry.id} value={entry.id}>
-                {entry.title} · {entry.id}
-              </option>
-            ))}
-          </select>
-          <button className="icon-button" type="button" onClick={() => goToMap(selectedIndex + 1)} title="Следующая карта">
-            <ChevronRight size={18} />
-          </button>
-          <button className="icon-button" type="button" onClick={() => setFitSignal((value) => value + 1)} title="Показать всю карту">
-            <Focus size={18} />
-          </button>
+          <div className="map-toolbar__title" title={selected.id}>
+            {selected.title} · {selected.id}
+          </div>
           <button
             className={`icon-button ${showTransitionLabels ? 'is-active' : ''}`}
             type="button"
-            onClick={() => setShowTransitionLabels((value) => !value)}
+            onClick={() => setShowTransitionLabels(!showTransitionLabels)}
             title="Подписи переходов"
           >
             <Route size={18} />
           </button>
         </div>
-        <label className="camera-distance">
-          <span>Дальность</span>
-          <input
-            type="range"
-            min={APP_CONFIG.camera.distance.min}
-            max={APP_CONFIG.camera.distance.max}
-            step={APP_CONFIG.camera.distance.step}
-            value={cameraDistance}
-            onChange={(event) => setCameraDistance(Number(event.target.value))}
-          />
-          <output>{cameraDistance}</output>
-        </label>
       </div>
 
       <section className="map-meta" aria-label="Информация о карте">
@@ -121,7 +63,11 @@ export default function App() {
           </div>
           <div>
             <dt>Рендер</dt>
-            <dd>{renderStats.mode === 'overview' ? 'overview' : `${renderStats.visibleChunks}/${renderStats.totalChunks} chunks`}</dd>
+            <dd>
+              {renderStats.mode === 'overview'
+                ? 'overview'
+                : `${renderStats.visibleChunks}/${renderStats.totalChunks} chunks`}
+            </dd>
           </div>
           <div>
             <dt>Неизвестно</dt>
@@ -129,25 +75,219 @@ export default function App() {
           </div>
           <div>
             <dt>Клик</dt>
-            <dd>{clickedTile ? `${clickedTile.x}, ${clickedTile.y}` : '-'}</dd>
+            <dd>-</dd>
+          </div>
+          <div>
+            <dt>Игрок</dt>
+            <dd>{serverPlayer ? `${serverPlayer.x}, ${serverPlayer.y}` : '-'}</dd>
+          </div>
+          <div>
+            <dt>Live</dt>
+            <dd title={live.error || live.actionError || ''}>{live.actionError || liveLabel}</dd>
           </div>
         </dl>
       </section>
+    </>
+  );
+}
+
+export default function App() {
+  const [showDemoPanels, setShowDemoPanels] = useState(false);
+  const [cameraMode, setCameraMode] = useState('follow');
+  const {
+    loading,
+    maps,
+    mapEntries,
+    selectedId,
+    error,
+    showTransitionLabels,
+    toasts,
+    dialogModal,
+    mapKeyboardRows,
+    movementAnimation,
+    selectedActionTile,
+    live,
+    loadMaps,
+    connectLive,
+    disconnectLive,
+    setShowTransitionLabels,
+    setRenderStats,
+    handleTileClick,
+    sendServerAction,
+    dismissToast,
+    clearMovementAnimation,
+  } = useMapDemoStore(
+    useShallow((state) => ({
+      loading: state.loading,
+      maps: state.maps,
+      mapEntries: state.mapEntries,
+      selectedId: state.selectedId,
+      error: state.error,
+      showTransitionLabels: state.showTransitionLabels,
+      toasts: state.toasts,
+      dialogModal: state.dialogModal,
+      mapKeyboardRows: state.mapKeyboardRows,
+      movementAnimation: state.movementAnimation,
+      selectedActionTile: state.selectedActionTile,
+      live: state.live,
+      loadMaps: state.loadMaps,
+      connectLive: state.connectLive,
+      disconnectLive: state.disconnectLive,
+      setShowTransitionLabels: state.setShowTransitionLabels,
+      setRenderStats: state.setRenderStats,
+      handleTileClick: state.handleTileClick,
+      sendServerAction: state.sendServerAction,
+      dismissToast: state.dismissToast,
+      clearMovementAnimation: state.clearMovementAnimation,
+    })),
+  );
+
+  useEffect(() => {
+    loadMaps();
+    connectLive();
+    return () => disconnectLive();
+  }, [connectLive, disconnectLive, loadMaps]);
+
+  const selectedIndex = Math.max(0, mapEntries.findIndex((entry) => entry.id === selectedId));
+  const selected = mapEntries[selectedIndex] || null;
+  const model = useMemo(() => (selected ? buildChunkModel(selected.map) : null), [selected]);
+  const liveOnSelectedMap = live.mapState?.ok && live.mapState.mapId === selected?.id ? live.mapState : null;
+  const liveUiType = String(liveOnSelectedMap?.uiState?.type || '').toLowerCase();
+  const serverPlayer = liveOnSelectedMap?.player || null;
+  const activeMovementAnimation = movementAnimation?.mapId === selected?.id ? movementAnimation : null;
+  const liveLayers = liveOnSelectedMap?.layers;
+  const actionsByTile = liveOnSelectedMap?.actionsByTile || EMPTY_OBJECT;
+  const otherPlayers = liveLayers?.otherPlayers || EMPTY_ARRAY;
+  const actors = useMemo(() => {
+    if (!liveOnSelectedMap) return EMPTY_ARRAY;
+
+    return [
+      ...(liveLayers?.consumables || EMPTY_ARRAY),
+      ...(liveLayers?.huntTiles || EMPTY_ARRAY),
+      ...(liveLayers?.enemies || EMPTY_ARRAY),
+      ...(liveLayers?.npcs || EMPTY_ARRAY),
+      ...(activeMovementAnimation ? EMPTY_ARRAY : [liveOnSelectedMap.player]),
+    ].filter(Boolean);
+  }, [activeMovementAnimation, liveLayers, liveOnSelectedMap]);
+  const playerFollowTarget = useMemo(() => {
+    if (!serverPlayer || !model) return null;
+
+    const x = Number(serverPlayer.x);
+    const y = Number(serverPlayer.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+
+    const world = tileToWorld(x, y, model.dimensions);
+    return {
+      x,
+      y,
+      worldX: world.x,
+      worldY: world.y,
+    };
+  }, [model, serverPlayer]);
+  const lockedHoverTile = useMemo(() => {
+    const canShowLockedTile =
+      selectedActionTile?.mapId === selected?.id &&
+      (live.actionStatus === 'sending' || !!activeMovementAnimation);
+
+    if (!canShowLockedTile || !model) return null;
+
+    const x = Number(selectedActionTile.x);
+    const y = Number(selectedActionTile.y);
+    if (!Number.isInteger(x) || !Number.isInteger(y)) return null;
+
+    const world = tileToWorld(x, y, model.dimensions);
+    return {
+      x,
+      y,
+      worldX: world.x,
+      worldY: world.y,
+    };
+  }, [activeMovementAnimation, live.actionStatus, model, selected?.id, selectedActionTile]);
+  const visibleMapKeyboardRows =
+    liveOnSelectedMap && liveUiType === 'map' && !dialogModal && cameraMode === 'follow' ? mapKeyboardRows : EMPTY_ARRAY;
+  const showMapViewToggle = !!liveOnSelectedMap && !dialogModal;
+  const isFullMap = cameraMode === 'full';
+  const mapInteractionEnabled = cameraMode === 'follow' && !dialogModal;
+  const liveLabel =
+    live.status === 'ready'
+      ? `${live.transport || 'live'} ${otherPlayers.length}/${actors.length}${
+          live.actionStatus === 'sending' ? ' move...' : ''
+        }`
+      : live.status;
+
+  if (loading) {
+    return <div className="app-status">Загрузка карт...</div>;
+  }
+
+  if (error || !selected || !model) {
+    return <div className="app-status">Не удалось загрузить карты: {error?.message || 'пустой список'}</div>;
+  }
+
+  return (
+    <main className="app-shell">
+      <button
+        className={`demo-toggle ${showDemoPanels ? 'is-active' : ''}`}
+        type="button"
+        onClick={() => setShowDemoPanels((visible) => !visible)}
+        title="Демо панели"
+      >
+        <SlidersHorizontal size={13} />
+      </button>
+
+      {showMapViewToggle ? (
+        <button
+          className={`map-view-toggle ${isFullMap ? 'is-active' : ''}`}
+          type="button"
+          onClick={() => setCameraMode((mode) => (mode === 'full' ? 'follow' : 'full'))}
+          title={isFullMap ? 'Следовать за игроком' : 'Карта'}
+        >
+          <MapIcon size={15} />
+          <span>{isFullMap ? 'Игрок' : 'Карта'}</span>
+        </button>
+      ) : null}
+
+      {showDemoPanels ? (
+        <DemoPanels
+          selected={selected}
+          model={model}
+          serverPlayer={serverPlayer}
+          live={live}
+          liveLabel={liveLabel}
+          showTransitionLabels={showTransitionLabels}
+          setShowTransitionLabels={setShowTransitionLabels}
+        />
+      ) : null}
 
       <MapScene
         map={selected.map}
         mapsDict={maps}
         model={model}
-        fitSignal={fitSignal}
+        cameraMode={cameraMode}
         showTransitionLabels={showTransitionLabels}
-        cameraDistance={cameraDistance}
-        focusTarget={focusTarget}
-        onTileClick={(tile) => {
-          setClickedTile({ x: tile.x, y: tile.y });
-          setFocusTarget({ ...tile, nonce: Date.now() });
-        }}
+        followTarget={playerFollowTarget}
+        interactionEnabled={mapInteractionEnabled}
+        lockedHoverTile={lockedHoverTile}
+        hoverLayers={liveLayers}
+        actionsByTile={actionsByTile}
+        movementAnimation={activeMovementAnimation}
+        movingEntity={activeMovementAnimation ? serverPlayer : null}
+        onMovementComplete={clearMovementAnimation}
+        onTileClick={handleTileClick}
+        otherPlayers={otherPlayers}
+        actors={actors}
         onRenderStats={setRenderStats}
       />
+      <DialogModal
+        dialog={dialogModal}
+        busy={live.actionStatus === 'sending'}
+        onAction={sendServerAction}
+      />
+      <MapKeyboardPanel
+        rows={visibleMapKeyboardRows}
+        busy={live.actionStatus === 'sending' || !!activeMovementAnimation}
+        onAction={sendServerAction}
+      />
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </main>
   );
 }

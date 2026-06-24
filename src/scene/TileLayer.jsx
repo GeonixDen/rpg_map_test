@@ -24,6 +24,9 @@ export default function TileLayer({ map, mapsDict, model, showTransitionLabels, 
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.magFilter = THREE.NearestFilter;
     texture.minFilter = THREE.NearestFilter;
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.anisotropy = 1;
     texture.generateMipmaps = false;
     texture.needsUpdate = true;
   }, [texture]);
