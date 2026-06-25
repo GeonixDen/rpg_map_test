@@ -5,6 +5,7 @@ import MapScene from '../scene/MapScene.jsx';
 import { useMapDemoStore } from '../store/mapDemoStore.js';
 import { buildChunkModel, tileToWorld } from '../utils/mapModel.js';
 import { formatNumber } from '../utils/format.js';
+import BattleModal from '../battle/BattleModal.jsx';
 import DialogModal from './DialogModal.jsx';
 import MapKeyboardPanel from './MapKeyboardPanel.jsx';
 import ToastStack from './ToastStack.jsx';
@@ -103,6 +104,7 @@ export default function App() {
     showTransitionLabels,
     toasts,
     dialogModal,
+    battlePresentation,
     mapKeyboardRows,
     movementAnimation,
     selectedActionTile,
@@ -126,6 +128,7 @@ export default function App() {
       showTransitionLabels: state.showTransitionLabels,
       toasts: state.toasts,
       dialogModal: state.dialogModal,
+      battlePresentation: state.battlePresentation,
       mapKeyboardRows: state.mapKeyboardRows,
       movementAnimation: state.movementAnimation,
       selectedActionTile: state.selectedActionTile,
@@ -153,6 +156,9 @@ export default function App() {
   const model = useMemo(() => (selected ? buildChunkModel(selected.map) : null), [selected]);
   const liveOnSelectedMap = live.mapState?.ok && live.mapState.mapId === selected?.id ? live.mapState : null;
   const liveUiType = String(liveOnSelectedMap?.uiState?.type || '').toLowerCase();
+  const currentUiType = String(live.mapState?.uiState?.type || '').toLowerCase();
+  const battleUiType = String(live.battleState?.uiState?.type || currentUiType).toLowerCase();
+  const battleModalVisible = battleUiType === 'battle' || battleUiType === 'battleresult';
   const serverPlayer = liveOnSelectedMap?.player || null;
   const activeMovementAnimation = movementAnimation?.mapId === selected?.id ? movementAnimation : null;
   const liveLayers = liveOnSelectedMap?.layers;
@@ -204,10 +210,12 @@ export default function App() {
     };
   }, [activeMovementAnimation, live.actionStatus, model, selected?.id, selectedActionTile]);
   const visibleMapKeyboardRows =
-    liveOnSelectedMap && liveUiType === 'map' && !dialogModal && cameraMode === 'follow' ? mapKeyboardRows : EMPTY_ARRAY;
-  const showMapViewToggle = !!liveOnSelectedMap && !dialogModal;
+    liveOnSelectedMap && liveUiType === 'map' && !dialogModal && !battleModalVisible && cameraMode === 'follow'
+      ? mapKeyboardRows
+      : EMPTY_ARRAY;
+  const showMapViewToggle = !!liveOnSelectedMap && !dialogModal && !battleModalVisible;
   const isFullMap = cameraMode === 'full';
-  const mapInteractionEnabled = cameraMode === 'follow' && !dialogModal;
+  const mapInteractionEnabled = cameraMode === 'follow' && !dialogModal && !battleModalVisible;
   const liveLabel =
     live.status === 'ready'
       ? `${live.transport || 'live'} ${otherPlayers.length}/${actors.length}${
@@ -278,7 +286,14 @@ export default function App() {
         onRenderStats={setRenderStats}
       />
       <DialogModal
-        dialog={dialogModal}
+        dialog={battleModalVisible ? null : dialogModal}
+        busy={live.actionStatus === 'sending'}
+        onAction={sendServerAction}
+      />
+      <BattleModal
+        battleState={live.battleState}
+        presentation={battlePresentation}
+        uiType={battleUiType}
         busy={live.actionStatus === 'sending'}
         onAction={sendServerAction}
       />

@@ -38,6 +38,31 @@ function getMapStateFromAction(result) {
   return result?.mapState || null;
 }
 
+function getBattleStateFromAction(result) {
+  return result?.battleState || null;
+}
+
+function normalizeUiType(uiType) {
+  return String(uiType || '').trim().toLowerCase();
+}
+
+function isBattleUiType(uiType) {
+  const normalized = normalizeUiType(uiType);
+  return normalized === 'battle' || normalized === 'battleresult';
+}
+
+function createBattlePresentationFromActionResult(result) {
+  const uiType = normalizeUiType(getActionResultUiType(result));
+  if (uiType !== 'battleresult') return null;
+
+  return {
+    image: result?.image || '',
+    caption: result?.caption || '',
+    keyboard: Array.isArray(result?.keyboard) ? result.keyboard : [],
+    uiState: result?.uiState || result?.mapState?.uiState || null,
+  };
+}
+
 function getMapKeyboardRowsFromResult(result) {
   const fromAction = createMapKeyboardRows(result?.keyboard);
   if (fromAction.length) return fromAction;
@@ -135,6 +160,7 @@ export const useMapDemoStore = create((set, get) => ({
   toasts: [],
   pendingToasts: [],
   dialogModal: null,
+  battlePresentation: null,
   mapKeyboardRows: [],
   movementAnimation: null,
   pendingActionResult: null,
@@ -151,6 +177,7 @@ export const useMapDemoStore = create((set, get) => ({
     transport: null,
     error: null,
     mapState: null,
+    battleState: null,
     updatedAt: null,
     actionStatus: 'idle',
     actionError: null,
@@ -241,15 +268,23 @@ export const useMapDemoStore = create((set, get) => ({
   },
   handleActionPresentation: (result) => {
     const uiType = getActionResultUiType(result);
+    const normalizedUiType = normalizeUiType(uiType);
     const fallbackImage = result?.image == null ? get().dialogModal?.image || '' : '';
     const dialogModal = createDialogModalFromActionResult(result, { fallbackImage });
     const mapKeyboardRows = uiType === 'map' ? getMapKeyboardRowsFromResult(result) : [];
+    const battlePresentation = createBattlePresentationFromActionResult(result);
 
     if (dialogModal) {
-      set({ dialogModal });
+      set({ dialogModal, battlePresentation: null });
+    } else if (isBattleUiType(normalizedUiType)) {
+      set({
+        dialogModal: null,
+        battlePresentation: battlePresentation || (normalizedUiType === 'battle' ? null : get().battlePresentation),
+      });
     } else if (uiType && uiType !== 'dialog') {
       set((state) => ({
         dialogModal: null,
+        battlePresentation: null,
         mapKeyboardRows: mapKeyboardRows.length ? mapKeyboardRows : state.mapKeyboardRows,
       }));
     }
@@ -259,6 +294,7 @@ export const useMapDemoStore = create((set, get) => ({
   },
   completeActionResult: (result, transport, { responseOk = true } = {}) => {
     const mapState = result?.mapState;
+    const battleState = getBattleStateFromAction(result);
     get().handleActionPresentation(result);
 
     if (!responseOk || !mapState?.ok) {
@@ -270,11 +306,14 @@ export const useMapDemoStore = create((set, get) => ({
           actionError: result?.error || mapState?.error || 'move_failed',
         },
       }));
+      if (battleState) {
+        get().applyLiveBattleState(battleState, transport);
+      }
       get().flushQueuedToasts();
       return false;
     }
 
-    get().applyLiveMapState(mapState, transport);
+    get().applyLiveMapState(mapState, transport, battleState);
     set((state) => ({
       selectedActionTile: null,
       live: {
@@ -316,9 +355,10 @@ export const useMapDemoStore = create((set, get) => ({
 
   applyActionMapStateResult: (result, transport) => {
     const mapState = getMapStateFromAction(result);
+    const battleState = getBattleStateFromAction(result);
 
     if (mapState?.ok) {
-      get().applyLiveMapState(mapState, transport);
+      get().applyLiveMapState(mapState, transport, battleState);
       return true;
     }
 
@@ -331,6 +371,24 @@ export const useMapDemoStore = create((set, get) => ({
       },
     }));
     return false;
+  },
+
+  applyLiveBattleState: (battleState, transport = 'http') => {
+    set((state) => {
+      const uiType = getActionResultUiType({ uiState: battleState?.uiState });
+      const nextBattleState = battleState?.ok && isBattleUiType(uiType) ? battleState : null;
+
+      return {
+        live: {
+          ...state.live,
+          status: state.live.status === 'idle' ? 'ready' : state.live.status,
+          transport,
+          error: null,
+          battleState: nextBattleState,
+          updatedAt: battleState?.updatedAt || state.live.updatedAt || new Date().toISOString(),
+        },
+      };
+    });
   },
 
   handleTileClick: (tile) => {
@@ -452,7 +510,7 @@ export const useMapDemoStore = create((set, get) => ({
     }
   },
 
-  applyLiveMapState: (mapState, transport = 'http') => {
+  applyLiveMapState: (mapState, transport = 'http', battleState = undefined) => {
     if (!mapState?.ok) {
       set((state) => ({
         live: {
@@ -468,6 +526,11 @@ export const useMapDemoStore = create((set, get) => ({
     set((state) => {
       const nextUiType = getActionResultUiType({ uiState: mapState.uiState });
       const mapKeyboardRows = nextUiType === 'map' ? createMapKeyboardRows(mapState.mapKeyboard) : [];
+      const hasBattleStatePayload = battleState !== undefined;
+      const battleUiType = getActionResultUiType({ uiState: battleState?.uiState });
+      const nextBattleState = hasBattleStatePayload
+        ? (battleState?.ok && isBattleUiType(battleUiType) ? battleState : null)
+        : (isBattleUiType(nextUiType) ? state.live.battleState : null);
       const canFollowMap =
         mapState.mapId &&
         state.mapEntries.some((entry) => entry.id === mapState.mapId) &&
@@ -488,6 +551,7 @@ export const useMapDemoStore = create((set, get) => ({
           transport,
           error: null,
           mapState,
+          battleState: nextBattleState,
           updatedAt: mapState.updatedAt || new Date().toISOString(),
           actionStatus: state.live.actionStatus,
           actionError: state.live.actionError,
@@ -525,8 +589,17 @@ export const useMapDemoStore = create((set, get) => ({
       logIncoming('api:action:refresh', result);
       get().applyActionMapStateResult(result, 'http');
       const mapState = getMapStateFromAction(result);
+      const uiType = normalizeUiType(getActionResultUiType({ uiState: mapState?.uiState }));
 
-      if (getActionResultUiType({ uiState: mapState?.uiState }) === 'dialog' && !get().dialogModal) {
+      if (uiType === 'dialog' && !get().dialogModal) {
+        await get().sendServerAction('resume_dialog');
+      }
+
+      if (uiType === 'battle') {
+        await get().sendServerAction('resume_dialog');
+      }
+
+      if (uiType === 'battleresult' && !get().battlePresentation) {
         await get().sendServerAction('resume_dialog');
       }
 

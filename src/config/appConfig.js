@@ -228,6 +228,199 @@ export const APP_CONFIG = {
     trunkAnchor: -0.24,
   },
 
+  battle: {
+    visualQueue: {
+      impactDelayMs: 58,
+      stepMs: 215,
+      healStepMs: 240,
+      syncStatusesWithHits: true,
+    },
+
+    effects: {
+      transient: {
+        damageVisibleMs: 170,
+        healVisibleMs: 210,
+        transitionDurationMs: 82,
+        fromScale: 0.58,
+        enterScale: 1.06,
+        leaveScale: 1.24,
+        enterOpacity: 0.98,
+      },
+    },
+
+    statusEffects: {
+      stun: {
+        strength: 1,
+        desaturation: 1,
+        brightness: 0.84,
+      },
+    },
+
+    highlights: {
+      default: {
+        color: '#ffffff',
+        opacity: 0,
+        thickness: 1.2,
+      },
+      hoveredTargetable: {
+        color: '#fff6c2',
+        opacity: 1,
+        thickness: 3.15,
+      },
+      targetable: {
+        color: '#ffcf57',
+        opacity: 1,
+        thickness: 2.65,
+      },
+      selected: {
+        color: '#b6f5ff',
+        opacity: 0.98,
+        thickness: 2.2,
+      },
+      hoveredSelectable: {
+        color: '#c3e8ff',
+        opacity: 0.88,
+        thickness: 1.9,
+      },
+    },
+
+    animations: {
+      idle: {
+        enabled: true,
+        speed: 3,
+        maxUpperLift: 0.01,
+        curve: 5,
+        anchorCompensation: 0.5,
+      },
+      attack: {
+        spring: {
+          tension: 820,
+          friction: 20,
+        },
+        steps: [
+          {
+            x: 22,
+            y: -2,
+            rotation: -0.055,
+            duration: 70,
+          },
+          {
+            x: -4,
+            y: 1,
+            rotation: 0.022,
+            duration: 60,
+          },
+          {
+            x: 0,
+            y: 0,
+            rotation: 0,
+            duration: 85,
+          },
+        ],
+      },
+      impact: {
+        spring: {
+          tension: 940,
+          friction: 18,
+        },
+        settle: {
+          x: 0,
+          y: 0,
+          rotation: 0,
+          duration: 78,
+        },
+        types: {
+          damage: [
+            {
+              x: -9,
+              y: 2,
+              rotation: 0.04,
+              duration: 48,
+            },
+            {
+              x: 5,
+              y: -1,
+              rotation: -0.03,
+              duration: 58,
+            },
+          ],
+          block: [
+            {
+              x: -4,
+              y: 0,
+              rotation: 0.018,
+              duration: 44,
+            },
+            {
+              x: 2,
+              y: 0,
+              rotation: -0.012,
+              duration: 52,
+            },
+          ],
+          dodge: [
+            {
+              x: -18,
+              y: 5,
+              rotation: 0.085,
+              duration: 64,
+            },
+            {
+              x: 5,
+              y: -2,
+              rotation: -0.035,
+              duration: 66,
+            },
+          ],
+        },
+      },
+      heal: {
+        spring: {
+          tension: 560,
+          friction: 16,
+        },
+        stretchY: 1.012,
+        liftCompensation: 0.5,
+        pulseDuration: 86,
+        settleDuration: 130,
+      },
+      flash: {
+        spring: {
+          tension: 640,
+          friction: 18,
+        },
+        holdDuration: 46,
+        fadeDuration: 150,
+        types: {
+          damage: {
+            color: '#ffb3aa',
+            strength: 0.42,
+          },
+          heal: {
+            color: '#b9ffc5',
+            strength: 0.36,
+          },
+        },
+      },
+      life: {
+        spring: {
+          tension: 220,
+          friction: 24,
+        },
+        removeDeadAfterMs: 880,
+        removeDeadFadeMs: 420,
+        deadOpacity: 0.16,
+        deadDropY: -18,
+        deadScale: 0.88,
+        deadRotation: 0.025,
+        deadFadeOpacity: 0,
+        deadFadeDropY: -34,
+        deadFadeScale: 0.72,
+        deadFadeRotation: 0.075,
+      },
+    },
+  },
+
   dynamicEntities: {
     visible: true,
     scale: 1,
