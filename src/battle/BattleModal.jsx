@@ -4,14 +4,17 @@ import BattleInteractionLayer from './components/BattleInteractionLayer.jsx';
 import { BattleOverlay, BattleUnderlay } from './components/BattleOverlayLayer.jsx';
 import {
   applyBattleVisualEventToAnimations,
+  applyVisualEventToEffectiveStatsOverrides,
   applyVisualEventToStatusOverrides,
   buildBattleView,
+  buildInitialVisualEffectiveStatsOverrides,
   buildInitialVisualStatusOverrides,
   collectNewVisualEvents,
   createInitialAnimationState,
   diffBattleAnimations,
   getVisualEventKind,
   normalizePlayerSnapshot,
+  shouldVisualEventTriggerDeath,
 } from './data/battleSnapshot.js';
 import { applyServerResolvedActionToCard, buildActionCardsForActor } from './lib/battleActionCards.js';
 import {
@@ -48,6 +51,8 @@ const BATTLE_VISUAL_EVENT_STEP_MS = numberOr(BATTLE_VISUAL_QUEUE.stepMs, 215);
 const BATTLE_VISUAL_EVENT_HEAL_STEP_MS = numberOr(BATTLE_VISUAL_QUEUE.healStepMs, 240);
 const BATTLE_DEATH_REMOVE_DELAY_MS = numberOr(BATTLE_LIFE_ANIMATION.removeDeadAfterMs, 880);
 const BATTLE_DEATH_FADE_MS = numberOr(BATTLE_LIFE_ANIMATION.removeDeadFadeMs, 420);
+const BATTLE_DEATH_AFTER_IMPACT_MS = numberOr(BATTLE_LIFE_ANIMATION.deathAfterImpactMs, 210);
+const BATTLE_RESULT_REVEAL_DELAY_MS = numberOr(BATTLE_LIFE_ANIMATION.resultRevealDelayMs, 140);
 
 function numberOr(value, fallback) {
   const number = Number(value);
@@ -60,7 +65,7 @@ function buildSelectedActorModel(char) {
   return {
     charId: char.id,
     side: char.side,
-    stats: getEffectiveStats(char),
+    stats: char.effectiveStats || getEffectiveStats(char),
   };
 }
 
@@ -120,15 +125,33 @@ function createBattleViewState(snapshot, previous) {
   const statusOverridesByCharId = BATTLE_VISUAL_STATUS_SYNC && queuedVisualEvents.length
     ? buildInitialVisualStatusOverrides(normalizedPlayer, queuedVisualEvents)
     : {};
+  const effectiveStatsOverridesByCharId = BATTLE_VISUAL_STATUS_SYNC && queuedVisualEvents.length
+    ? buildInitialVisualEffectiveStatsOverrides(normalizedPlayer, queuedVisualEvents)
+    : {};
 
   return {
-    ...buildBattleView(normalizedPlayer, animations, { statusOverridesByCharId }),
+    ...buildBattleView(normalizedPlayer, animations, {
+      statusOverridesByCharId,
+      effectiveStatsOverridesByCharId,
+    }),
     queuedVisualEvents,
   };
 }
 
 function getBattlePlayerSnapshot(battleState) {
   return battleState?.player || battleState?.rawPlayer || battleState?.snapshot || null;
+}
+
+function getBattleFleeInfo(player) {
+  const battle = player?.session?.battle || {};
+  const flee = battle.flee || {};
+  const rawChance = Number(flee.chancePct ?? battle.fleeChancePct ?? battle.fleeChance);
+  const rawAvailable = flee.available ?? battle.canFlee;
+
+  return {
+    chancePct: Number.isFinite(rawChance) ? Math.round(rawChance) : null,
+    available: rawAvailable !== false,
+  };
 }
 
 function getServerActorActionState(actionState, actorId) {
@@ -393,7 +416,13 @@ function BattleResultView({ battleResult, presentation, busy, onAction }) {
   );
 }
 
-function BattleScene({ battleState, busy, onAction }) {
+function BattleScene({
+  battleState,
+  resultPending = false,
+  busy,
+  onAction,
+  onVisualSettled,
+}) {
   const incomingPlayer = getBattlePlayerSnapshot(battleState);
   const [battleView, setBattleView] = useState(null);
   const [catalogs, setCatalogs] = useState(FALLBACK_BATTLE_CATALOGS);
@@ -407,6 +436,11 @@ function BattleScene({ battleState, busy, onAction }) {
   const visualQueueImpactTimerRef = useRef(null);
   const visualQueueRunningRef = useRef(false);
   const deathRemovalTimersRef = useRef(new Map());
+  const delayedDeathTimersRef = useRef(new Map());
+  const resultRevealTimerRef = useRef(null);
+  const resultPendingRef = useRef(resultPending);
+  const resultSettledNotifiedRef = useRef(false);
+  const onVisualSettledRef = useRef(onVisualSettled);
   const [sceneUiScale, setSceneUiScale] = useState(1);
   const [sceneViewport, setSceneViewport] = useState({
     left: 0,
@@ -414,6 +448,46 @@ function BattleScene({ battleState, busy, onAction }) {
     width: 1,
     height: 1,
   });
+
+  useEffect(() => {
+    onVisualSettledRef.current = onVisualSettled;
+  }, [onVisualSettled]);
+
+  const clearResultRevealTimer = useCallback(() => {
+    if (resultRevealTimerRef.current) {
+      window.clearTimeout(resultRevealTimerRef.current);
+      resultRevealTimerRef.current = null;
+    }
+  }, []);
+
+  const hasPendingVisualWork = useCallback(() => (
+    visualQueueRunningRef.current
+    || visualQueueRef.current.length > 0
+    || Boolean(visualQueueTimerRef.current)
+    || Boolean(visualQueueImpactTimerRef.current)
+    || delayedDeathTimersRef.current.size > 0
+    || deathRemovalTimersRef.current.size > 0
+  ), []);
+
+  const notifyVisualSettledIfReady = useCallback(() => {
+    if (!resultPendingRef.current || resultSettledNotifiedRef.current) return;
+    if (hasPendingVisualWork() || resultRevealTimerRef.current) return;
+
+    resultRevealTimerRef.current = window.setTimeout(() => {
+      resultRevealTimerRef.current = null;
+
+      if (!resultPendingRef.current || resultSettledNotifiedRef.current) return;
+      if (hasPendingVisualWork()) return;
+
+      resultSettledNotifiedRef.current = true;
+      onVisualSettledRef.current?.();
+    }, BATTLE_RESULT_REVEAL_DELAY_MS);
+  }, [hasPendingVisualWork]);
+
+  const clearDelayedDeathTimers = useCallback(() => {
+    delayedDeathTimersRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+    delayedDeathTimersRef.current.clear();
+  }, []);
 
   const scheduleDeathRemoval = useCallback((charId) => {
     if (!charId || deathRemovalTimersRef.current.has(charId)) return;
@@ -439,6 +513,7 @@ function BattleScene({ battleState, busy, onAction }) {
         battleViewRef.current = nextView;
         return nextView;
       });
+      notifyVisualSettledIfReady();
     };
 
     const timeoutId = window.setTimeout(() => {
@@ -446,6 +521,7 @@ function BattleScene({ battleState, busy, onAction }) {
         const currentAnimation = current?.animations?.[charId];
         if (!currentAnimation?.dead || !currentAnimation?.keepVisible) {
           deathRemovalTimersRef.current.delete(charId);
+          window.setTimeout(notifyVisualSettledIfReady, 0);
           return current;
         }
 
@@ -473,7 +549,7 @@ function BattleScene({ battleState, busy, onAction }) {
     }, BATTLE_DEATH_REMOVE_DELAY_MS);
 
     deathRemovalTimersRef.current.set(charId, timeoutId);
-  }, []);
+  }, [notifyVisualSettledIfReady]);
 
   const scheduleDeathRemovalsForView = useCallback((view) => {
     Object.entries(view?.animations || {}).forEach(([charId, animation]) => {
@@ -482,6 +558,51 @@ function BattleScene({ battleState, busy, onAction }) {
       }
     });
   }, [scheduleDeathRemoval]);
+
+  const markCharacterDeadAfterImpact = useCallback((charId) => {
+    if (!charId) return;
+
+    setBattleView((current) => {
+      const currentAnimation = current?.animations?.[charId];
+      if (!currentAnimation) return current;
+
+      const nextAnimations = {
+        ...current.animations,
+        [charId]: {
+          ...currentAnimation,
+          deathToken: currentAnimation.dead
+            ? currentAnimation.deathToken
+            : (currentAnimation.deathToken || 0) + 1,
+          dead: true,
+          keepVisible: true,
+          removingDead: false,
+        },
+      };
+      const nextView = {
+        ...current,
+        animations: nextAnimations,
+      };
+
+      battleViewRef.current = nextView;
+      return nextView;
+    });
+
+    scheduleDeathRemoval(charId);
+  }, [scheduleDeathRemoval]);
+
+  const scheduleDelayedDeathAfterImpact = useCallback((event, remainingEvents = []) => {
+    const targetId = event?.targetId;
+    if (!targetId || delayedDeathTimersRef.current.has(targetId)) return;
+    if (!shouldVisualEventTriggerDeath(battleViewRef.current?.rawPlayer, event, remainingEvents)) return;
+
+    const timeoutId = window.setTimeout(() => {
+      delayedDeathTimersRef.current.delete(targetId);
+      markCharacterDeadAfterImpact(targetId);
+      notifyVisualSettledIfReady();
+    }, BATTLE_DEATH_AFTER_IMPACT_MS);
+
+    delayedDeathTimersRef.current.set(targetId, timeoutId);
+  }, [markCharacterDeadAfterImpact, notifyVisualSettledIfReady]);
 
   const clearDeathRemovalTimers = useCallback(() => {
     deathRemovalTimersRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
@@ -506,6 +627,13 @@ function BattleScene({ battleState, busy, onAction }) {
               current.rawPlayer,
               event,
             ),
+          effectiveStatsOverridesByCharId: !BATTLE_VISUAL_STATUS_SYNC || options.includeImpact === false
+            ? current.effectiveStatsOverridesByCharId
+            : applyVisualEventToEffectiveStatsOverrides(
+              current.effectiveStatsOverridesByCharId || {},
+              current.rawPlayer,
+              event,
+            ),
           animations: applyBattleVisualEventToAnimations(
             current.animations || {},
             current.rawPlayer,
@@ -527,13 +655,18 @@ function BattleScene({ battleState, busy, onAction }) {
       if (!event) {
         visualQueueRunningRef.current = false;
         visualQueueTimerRef.current = null;
+        notifyVisualSettledIfReady();
         return;
       }
 
+      const remainingEventsAfterThis = visualQueueRef.current.slice();
+
       applyVisualEvent(event, { includeImpact: false });
       visualQueueImpactTimerRef.current = window.setTimeout(() => {
-        applyVisualEvent(event, { includeAttacker: false });
+        applyVisualEvent(event, { includeAttacker: false, includeDeath: false });
+        scheduleDelayedDeathAfterImpact(event, remainingEventsAfterThis);
         visualQueueImpactTimerRef.current = null;
+        notifyVisualSettledIfReady();
       }, BATTLE_VISUAL_IMPACT_DELAY_MS);
 
       const delay = getVisualEventKind(event) === 'heal'
@@ -544,7 +677,7 @@ function BattleScene({ battleState, busy, onAction }) {
     };
 
     tick();
-  }, [scheduleDeathRemovalsForView]);
+  }, [notifyVisualSettledIfReady, scheduleDeathRemovalsForView, scheduleDelayedDeathAfterImpact]);
 
   const enqueueVisualEvents = useCallback((events = []) => {
     const normalizedEvents = Array.isArray(events)
@@ -587,9 +720,11 @@ function BattleScene({ battleState, busy, onAction }) {
       visualQueueImpactTimerRef.current = null;
       visualQueueRef.current = [];
       visualQueueRunningRef.current = false;
+      clearDelayedDeathTimers();
       clearDeathRemovalTimers();
+      clearResultRevealTimer();
     };
-  }, [clearDeathRemovalTimers]);
+  }, [clearDeathRemovalTimers, clearDelayedDeathTimers, clearResultRevealTimer]);
 
   useEffect(() => {
     if (!incomingPlayer) {
@@ -603,7 +738,9 @@ function BattleScene({ battleState, busy, onAction }) {
       visualQueueImpactTimerRef.current = null;
       visualQueueRef.current = [];
       visualQueueRunningRef.current = false;
+      clearDelayedDeathTimers();
       clearDeathRemovalTimers();
+      clearResultRevealTimer();
       battleViewRef.current = null;
       setBattleView(null);
       setSelectedActorId(null);
@@ -617,7 +754,24 @@ function BattleScene({ battleState, busy, onAction }) {
     setBattleView(nextView);
     scheduleDeathRemovalsForView(nextView);
     enqueueVisualEvents(nextView.queuedVisualEvents);
-  }, [clearDeathRemovalTimers, enqueueVisualEvents, incomingPlayer, scheduleDeathRemovalsForView]);
+  }, [
+    clearDeathRemovalTimers,
+    clearDelayedDeathTimers,
+    clearResultRevealTimer,
+    enqueueVisualEvents,
+    incomingPlayer,
+    scheduleDeathRemovalsForView,
+  ]);
+
+  useEffect(() => {
+    resultPendingRef.current = resultPending;
+    resultSettledNotifiedRef.current = false;
+    clearResultRevealTimer();
+
+    if (resultPending) {
+      notifyVisualSettledIfReady();
+    }
+  }, [clearResultRevealTimer, incomingPlayer, notifyVisualSettledIfReady, resultPending]);
 
   useEffect(() => {
     if (!battleView?.rawPlayer) return;
@@ -635,9 +789,11 @@ function BattleScene({ battleState, busy, onAction }) {
   const enemiesResponded = battleView?.enemiesResponded || [];
   const animations = battleView?.animations || {};
   const statusOverridesByCharId = battleView?.statusOverridesByCharId || {};
+  const effectiveStatsOverridesByCharId = battleView?.effectiveStatsOverridesByCharId || {};
   const battleActive = Boolean(battleView?.battleActive);
   const actionState = battleView?.actionState || null;
   const unmaskOptions = Array.isArray(battleView?.unmaskOptions) ? battleView.unmaskOptions : [];
+  const fleeInfo = getBattleFleeInfo(battleView?.rawPlayer);
 
   const sceneModel = useMemo(() => buildBattleSceneModel({
     mapId,
@@ -647,8 +803,19 @@ function BattleScene({ battleState, busy, onAction }) {
     enemiesResponded,
     animations,
     statusOverridesByCharId,
+    effectiveStatsOverridesByCharId,
     catalogs,
-  }), [actedCharacters, animations, catalogs, enemiesResponded, enemyChars, mapId, statusOverridesByCharId, validChars]);
+  }), [
+    actedCharacters,
+    animations,
+    catalogs,
+    effectiveStatsOverridesByCharId,
+    enemiesResponded,
+    enemyChars,
+    mapId,
+    statusOverridesByCharId,
+    validChars,
+  ]);
 
   useEffect(() => {
     const node = sceneFrameRef.current;
@@ -942,29 +1109,40 @@ function BattleScene({ battleState, busy, onAction }) {
               onExecuteUnmask={executeUnmaskAction}
               onHoverActorChange={setHoveredActorId}
             />
-
-            <div className="battle-test__utility-anchor battle-test__utility-anchor--bottom">
-              <div className="battle-test__utility-bar">
-                <button
-                  type="button"
-                  className="battle-test__utility-button"
-                  disabled={busy}
-                  onClick={() => onAction(ACTIONS.endTurn)}
-                >
-                  Завершить ход
-                </button>
-                <button
-                  type="button"
-                  className="battle-test__utility-button"
-                  disabled={busy}
-                  onClick={() => onAction(ACTIONS.flee)}
-                >
-                  Побег
-                </button>
-              </div>
-            </div>
           </div>
         </section>
+
+        <div
+          className="battle-test__bottom-actions"
+          style={{ '--battle-ui-scale': sceneUiScale }}
+        >
+          <div className="battle-test__utility-bar battle-test__utility-bar--inline">
+            <button
+              type="button"
+              className="battle-test__utility-button"
+              disabled={busy}
+              onClick={() => onAction(ACTIONS.endTurn)}
+            >
+              Завершить ход
+            </button>
+
+            {fleeInfo.available ? (
+              <button
+                type="button"
+                className="battle-test__utility-button battle-test__utility-button--flee"
+                disabled={busy}
+                onClick={() => onAction(ACTIONS.flee)}
+              >
+                <span>Побег</span>
+                {fleeInfo.chancePct != null ? (
+                  <span className="battle-test__utility-button-chance">
+                    {fleeInfo.chancePct}%
+                  </span>
+                ) : null}
+              </button>
+            ) : null}
+          </div>
+        </div>
       </div>
     </section>
   );
@@ -973,16 +1151,44 @@ function BattleScene({ battleState, busy, onAction }) {
 function BattleModal({ battleState, presentation, uiType, busy = false, onAction }) {
   const normalizedUiType = String(uiType || battleState?.uiState?.type || '').toLowerCase();
   const canShowBattleShell = normalizedUiType === 'battle' || normalizedUiType === 'battleresult';
+  const battleResult = battleState?.player?.session?.battleResult || battleState?.battleResult || null;
+  const resultRequested = Boolean(battleResult && normalizedUiType === 'battleresult');
+  const resultKey = [
+    normalizedUiType,
+    battleResult?.result || '',
+    battleResult?.log || '',
+    battleResult?.extraCaption || '',
+    presentation?.caption || '',
+    presentation?.image || '',
+  ].join('|');
+  const [resultReady, setResultReady] = useState(false);
+  const shouldShowResult = resultRequested && resultReady;
+
+  useEffect(() => {
+    setResultReady(false);
+  }, [resultKey]);
+
+  useEffect(() => {
+    if (!resultRequested) {
+      setResultReady(false);
+    } else if (!battleState) {
+      setResultReady(true);
+    }
+  }, [battleState, resultRequested]);
+
+  const handleBattleVisualSettled = useCallback(() => {
+    if (resultRequested) {
+      setResultReady(true);
+    }
+  }, [resultRequested]);
 
   if (!battleState && !presentation && !canShowBattleShell) return null;
-
-  const battleResult = battleState?.player?.session?.battleResult || battleState?.battleResult || null;
 
   return (
     <div className="battle-modal-layer" role="presentation">
       <div className="battle-modal-backdrop" aria-hidden="true" />
 
-      {normalizedUiType === 'battleresult' ? (
+      {shouldShowResult ? (
         <BattleResultView
           battleResult={battleResult}
           presentation={presentation}
@@ -992,7 +1198,13 @@ function BattleModal({ battleState, presentation, uiType, busy = false, onAction
       ) : !battleState ? (
         <div className="battle-test__loading">Восстановление боя...</div>
       ) : (
-        <BattleScene battleState={battleState} busy={busy} onAction={onAction} />
+        <BattleScene
+          battleState={battleState}
+          resultPending={resultRequested}
+          busy={busy}
+          onAction={onAction}
+          onVisualSettled={handleBattleVisualSettled}
+        />
       )}
     </div>
   );

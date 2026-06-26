@@ -267,9 +267,9 @@ export function buildStatSvg(effectiveStats, mirrorStats) {
   const dodW = ICON_SIZE + ICON_GAP + charW * txtDod.length;
   const atkW = ICON_SIZE + ICON_GAP + charW * txtAtk.length;
 
-  const statSvgW = 80;
-  const statSvgH = 58;
   const bgPad = 1;
+  const statSvgW = Math.max(80, Math.ceil(Math.max(defW, dodW, atkW) + bgPad * 2 + 2));
+  const statSvgH = 58;
   const rowGap = 2;
   const leftX = bgPad + 1;
   const rightX = (w) => Math.max(0, statSvgW - w - bgPad - 1);
@@ -293,7 +293,7 @@ export function buildStatSvg(effectiveStats, mirrorStats) {
     : `<svg width="${ICON_SIZE}" height="${ICON_SIZE}" viewBox="0 0 24 24"><path d="M19.3,2.7c-0.8-0.8-2-0.8-2.8,0l-9.9,9.9L4,10.1l-2,2l4.2,4.2L2.7,19.8L4.2,21.3l3.5-3.5l4.2,4.2l2-2l-2.5-2.5l9.9-9.9 C22.1,6.8,22.1,5.5,21.3,4.7L19.3,2.7z" fill="#ff4444"/></svg>`;
 
   const statSvg = `
-<svg width="80" height="${statSvgH}" xmlns="http://www.w3.org/2000/svg">
+<svg width="${statSvgW}" height="${statSvgH}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <filter id="statShadow" x="-20%" y="-20%" width="140%" height="160%">
       <feDropShadow dx="0" dy="0.5" stdDeviation="0.6" flood-opacity="0.35"/>

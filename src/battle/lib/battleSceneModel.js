@@ -12,6 +12,95 @@ import {
 } from './battleData';
 import { getAllAbilityIds, getEffectiveStats, getSlotPosition } from './battleMath';
 import { buildCountBadgesSvg, buildPlatformSvgs, buildStatSvg } from './battleSvg';
+import { APP_CONFIG } from '../../config/appConfig.js';
+
+const LIFE_ANIMATION = APP_CONFIG.battle?.animations?.life || {};
+
+function numberOr(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function getStatusTone(statusId = '') {
+  return String(statusId).startsWith('debuff_') ? 'debuff' : 'buff';
+}
+
+function mergeServerEffectiveStats(serverStats, fallbackStats) {
+  if (!serverStats) return fallbackStats;
+
+  return {
+    ...fallbackStats,
+    ...serverStats,
+    attack: {
+      ...(fallbackStats.attack || {}),
+      ...(serverStats.attack || {}),
+    },
+    statuses: serverStats.statuses || fallbackStats.statuses || {},
+    name: serverStats.name || fallbackStats.name,
+    emoji: serverStats.emoji || fallbackStats.emoji,
+    hitEffect: serverStats.hitEffect || fallbackStats.hitEffect,
+    src: serverStats.src || fallbackStats.src,
+  };
+}
+
+function getDisplayEffectiveStats(char, displayChar, visualEffectiveStats, hasVisualStatusOverride) {
+  const fallbackStats = getEffectiveStats(displayChar);
+  const mergedStats = mergeServerEffectiveStats(visualEffectiveStats || char.effectiveStats, fallbackStats);
+
+  if (hasVisualStatusOverride && !visualEffectiveStats) {
+    return {
+      ...mergedStats,
+      statuses: fallbackStats.statuses,
+    };
+  }
+
+  return mergedStats;
+}
+
+function buildLifeUiStyle(animation = {}, { detail = false } = {}) {
+  const removingDead = Boolean(animation.removingDead);
+  const dead = Boolean(animation.dead);
+  const fadeMs = numberOr(LIFE_ANIMATION.removeDeadFadeMs, 420);
+  const settleMs = numberOr(LIFE_ANIMATION.uiSettleMs, 260);
+  const duration = removingDead ? fadeMs : settleMs;
+  const transition = [
+    `opacity ${duration}ms ease`,
+    `transform ${duration}ms cubic-bezier(0.22, 1, 0.36, 1)`,
+    `filter ${duration}ms ease`,
+  ].join(', ');
+
+  if (removingDead) {
+    return {
+      opacity: numberOr(LIFE_ANIMATION.uiFadeOpacity, 0),
+      transform: `translate3d(0, ${numberOr(LIFE_ANIMATION.uiFadeDropY, 8)}px, 0) scale(${numberOr(LIFE_ANIMATION.uiFadeScale, 0.86)})`,
+      filter: `blur(${numberOr(LIFE_ANIMATION.uiFadeBlur, 1.2)}px) saturate(0.45) brightness(0.65)`,
+      transformOrigin: '50% 65%',
+      transition,
+      willChange: 'opacity, transform, filter',
+    };
+  }
+
+  if (dead) {
+    return {
+      opacity: detail
+        ? numberOr(LIFE_ANIMATION.uiDetailDeadOpacity, 0.16)
+        : numberOr(LIFE_ANIMATION.uiDeadOpacity, 0.38),
+      transform: `translate3d(0, ${numberOr(LIFE_ANIMATION.uiDeadDropY, 2)}px, 0) scale(${numberOr(LIFE_ANIMATION.uiDeadScale, 0.96)})`,
+      filter: 'saturate(0.62) brightness(0.82)',
+      transformOrigin: '50% 65%',
+      transition,
+      willChange: 'opacity, transform, filter',
+    };
+  }
+
+  return {
+    opacity: 1,
+    transform: 'translate3d(0, 0, 0) scale(1)',
+    transformOrigin: '50% 65%',
+    transition,
+    willChange: 'opacity, transform, filter',
+  };
+}
 
 export function buildBattleSceneModel({
   mapId,
@@ -21,6 +110,7 @@ export function buildBattleSceneModel({
   enemiesResponded,
   animations = {},
   statusOverridesByCharId = {},
+  effectiveStatsOverridesByCharId = {},
   catalogs = {},
 }) {
   const background = getBattleBackground(mapId, catalogs.maps);
@@ -44,6 +134,8 @@ export function buildBattleSceneModel({
 
   allChars.forEach((char, index) => {
     const visualStatuses = statusOverridesByCharId?.[char.id];
+    const visualEffectiveStats = effectiveStatsOverridesByCharId?.[char.id];
+    const hasVisualStatusOverride = Boolean(visualStatuses);
     const displayChar = visualStatuses
       ? { ...char, statuses: visualStatuses }
       : char;
@@ -53,9 +145,16 @@ export function buildBattleSceneModel({
     const spriteTop = y - Math.floor(CHARACTER_DRAW_HEIGHT / 2);
     const spriteCenterY = spriteTop + CHARACTER_DRAW_HEIGHT / 2;
     const spriteUrl = toPublicAssetPath(char.templateOverrides?.src || charImages?.[char.templateId]?.[char.tier]);
-    const effectiveStats = getEffectiveStats(displayChar);
+    const effectiveStats = getDisplayEffectiveStats(
+      char,
+      displayChar,
+      visualEffectiveStats,
+      hasVisualStatusOverride,
+    );
     const allAbilityIds = getAllAbilityIds(displayChar, catalogs.chars, catalogs.abilities);
     const animation = animations[char.id] || {};
+    const lifeUiStyle = buildLifeUiStyle(animation);
+    const lifeDetailStyle = buildLifeUiStyle(animation, { detail: true });
     const stunned = Number(effectiveStats.statuses?.debuff_stun || 0) > 0;
     const activeChar = char.side === 'player'
       ? !playersAttackedSet.has(char.id)
@@ -81,6 +180,7 @@ export function buildBattleSceneModel({
       top: svgTop,
       width: platformSvgs.svgW,
       height: platformSvgs.totalH,
+      style: lifeUiStyle,
     });
 
     sprites.push({
@@ -134,6 +234,7 @@ export function buildBattleSceneModel({
       top: statTop,
       width: statSvg.width,
       height: statSvg.height,
+      style: lifeDetailStyle,
     });
 
     if (platformSvgs.ticksUri) {
@@ -145,6 +246,7 @@ export function buildBattleSceneModel({
         top: svgTop,
         width: platformSvgs.svgW,
         height: platformSvgs.totalH,
+        style: lifeDetailStyle,
       });
     }
 
@@ -207,10 +309,11 @@ export function buildBattleSceneModel({
             top,
             width: STATUS_ICON_SIZE,
             height: STATUS_ICON_SIZE,
-            tone: item.id.startsWith('buff_') ? 'buff' : 'debuff',
+            tone: getStatusTone(item.id),
+            style: lifeDetailStyle,
           });
 
-          if (item.count > 1) {
+          if (item.count > 1 && !animation.dead) {
             const badgeRadius = Math.floor(STATUS_ICON_SIZE / 4);
             const cxLocal = !shouldFlip ? (STATUS_ICON_SIZE - badgeRadius) : badgeRadius;
             const cyLocal = badgeRadius + 2;

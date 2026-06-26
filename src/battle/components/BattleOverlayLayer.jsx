@@ -267,6 +267,7 @@ export const BattleUnderlay = memo(function BattleUnderlay({ scene, items, highl
           sceneWidth={scene.width}
           sceneHeight={scene.height}
           className={buildPlatformClassName(item, highlightStateById)}
+          style={item.style}
         />
       ))}
     </div>
@@ -296,6 +297,7 @@ export const BattleOverlay = memo(function BattleOverlay({ scene, items, countsU
           sceneWidth={scene.width}
           sceneHeight={scene.height}
           className={`battle-test__overlay-image battle-test__overlay-image--${item.kind || 'svg'}${item.tone ? ` battle-test__overlay-image--${item.tone}` : ''}`}
+          style={item.style}
         />
       ))}
 

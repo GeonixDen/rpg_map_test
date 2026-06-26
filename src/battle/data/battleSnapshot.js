@@ -18,10 +18,33 @@ function normalizeBattleChar(char, fallbackSide) {
     tier: Number(char.tier) || 1,
     level: Number(char.level) || 0,
     health: Number(char.health) || 0,
+    effectiveStats: normalizeEffectiveStats(char.effectiveStats),
     position: {
       row: Number(char.position?.row ?? -1),
       col: Number(char.position?.col ?? -1),
     },
+  };
+}
+
+function normalizeEffectiveStats(stats) {
+  if (!stats || typeof stats !== 'object') return null;
+
+  return {
+    ...stats,
+    defence: Number(stats.defence || 0),
+    dodgeChance: Number(stats.dodgeChance || 0),
+    maxHealth: Number(stats.maxHealth || 0),
+    health: Number(stats.health || 0),
+    statuses: stats.statuses || {},
+    attack: {
+      ...(stats.attack || {}),
+      min: Number(stats.attack?.min || 0),
+      max: Number(stats.attack?.max || 0),
+    },
+    name: stats.name || null,
+    emoji: stats.emoji || '',
+    hitEffect: stats.hitEffect || null,
+    src: stats.src || null,
   };
 }
 
@@ -75,8 +98,63 @@ function normalizeStatusMap(statuses = {}) {
   return normalized;
 }
 
+function normalizeStatusTickMap(statusesTicked = {}) {
+  const normalized = {};
+
+  Object.entries(statusesTicked || {}).forEach(([id, rawValue]) => {
+    if (!id) return;
+
+    let before = null;
+    let after = null;
+
+    if (rawValue && typeof rawValue === 'object') {
+      before = Number(
+        rawValue.before
+        ?? rawValue.from
+        ?? rawValue.countBefore
+        ?? rawValue.valueBefore
+        ?? rawValue.stacksBefore
+        ?? rawValue.count
+        ?? rawValue.value
+        ?? rawValue.stacks,
+      );
+      after = Number(
+        rawValue.after
+        ?? rawValue.to
+        ?? rawValue.countAfter
+        ?? rawValue.valueAfter
+        ?? rawValue.stacksAfter
+        ?? rawValue.left
+        ?? rawValue.remaining,
+      );
+    } else {
+      before = Number(rawValue);
+    }
+
+    if (!Number.isFinite(before) || before <= 0) return;
+
+    const normalizedAfter = Number.isFinite(after)
+      ? Math.max(0, after)
+      : Math.max(0, before - 1);
+
+    if (normalizedAfter === before) return;
+
+    normalized[id] = {
+      before,
+      after: normalizedAfter,
+      delta: normalizedAfter - before,
+    };
+  });
+
+  return normalized;
+}
+
 function hasStatuses(statuses = {}) {
   return Object.keys(statuses || {}).length > 0;
+}
+
+function hasStatusTicks(statusesTicked = {}) {
+  return Object.keys(statusesTicked || {}).length > 0;
 }
 
 function subtractStatusMap(baseStatuses = {}, subtractStatuses = {}) {
@@ -87,6 +165,38 @@ function subtractStatusMap(baseStatuses = {}, subtractStatuses = {}) {
 
     if (left > 0) {
       next[id] = left;
+    } else {
+      delete next[id];
+    }
+  });
+
+  return next;
+}
+
+function restoreStatusTicks(baseStatuses = {}, statusesTicked = {}) {
+  const next = { ...normalizeStatusMap(baseStatuses) };
+
+  Object.entries(normalizeStatusTickMap(statusesTicked)).forEach(([id, transition]) => {
+    const before = Number(transition.before || 0);
+
+    if (before > 0) {
+      next[id] = Math.max(Number(next[id] || 0), before);
+    } else {
+      delete next[id];
+    }
+  });
+
+  return next;
+}
+
+function applyStatusTicks(baseStatuses = {}, statusesTicked = {}) {
+  const next = { ...normalizeStatusMap(baseStatuses) };
+
+  Object.entries(normalizeStatusTickMap(statusesTicked)).forEach(([id, transition]) => {
+    const after = Number(transition.after || 0);
+
+    if (after > 0) {
+      next[id] = after;
     } else {
       delete next[id];
     }
@@ -109,14 +219,28 @@ function statusMapsEqual(left = {}, right = {}) {
   return true;
 }
 
-function addStatusApplications(baseStatuses = {}, appliedStatuses = {}, finalStatuses = null) {
+function effectiveStatsEqual(left = null, right = null) {
+  const leftStats = normalizeEffectiveStats(left);
+  const rightStats = normalizeEffectiveStats(right);
+
+  if (!leftStats || !rightStats) return leftStats === rightStats;
+
+  return (
+    Number(leftStats.defence || 0) === Number(rightStats.defence || 0)
+    && Number(leftStats.dodgeChance || 0) === Number(rightStats.dodgeChance || 0)
+    && Number(leftStats.maxHealth || 0) === Number(rightStats.maxHealth || 0)
+    && Number(leftStats.health || 0) === Number(rightStats.health || 0)
+    && Number(leftStats.attack?.min || 0) === Number(rightStats.attack?.min || 0)
+    && Number(leftStats.attack?.max || 0) === Number(rightStats.attack?.max || 0)
+    && statusMapsEqual(leftStats.statuses, rightStats.statuses)
+  );
+}
+
+function addStatusApplications(baseStatuses = {}, appliedStatuses = {}) {
   const next = { ...normalizeStatusMap(baseStatuses) };
-  const finalMap = finalStatuses ? normalizeStatusMap(finalStatuses) : null;
 
   Object.entries(normalizeStatusMap(appliedStatuses)).forEach(([id, count]) => {
-    const rawNext = Number(next[id] || 0) + count;
-    const cap = finalMap && finalMap[id] != null ? Number(finalMap[id]) : rawNext;
-    const value = Math.min(rawNext, cap);
+    const value = Number(next[id] || 0) + count;
 
     if (value > 0) {
       next[id] = value;
@@ -128,16 +252,43 @@ function addStatusApplications(baseStatuses = {}, appliedStatuses = {}, finalSta
   return next;
 }
 
-function collectStatusApplicationsByTarget(events = []) {
+function collectEffectiveStatEventsByTarget(events = []) {
   const byTargetId = {};
 
   (Array.isArray(events) ? events : []).forEach((event) => {
     const targetId = event?.targetId;
+    const beforeStats = normalizeEffectiveStats(event?.targetEffectiveStatsBefore);
+    const afterStats = normalizeEffectiveStats(event?.targetEffectiveStatsAfter);
+
+    if (!targetId || (!beforeStats && !afterStats)) return;
+
+    byTargetId[targetId] ||= [];
+    byTargetId[targetId].push({
+      beforeStats,
+      afterStats,
+    });
+  });
+
+  return byTargetId;
+}
+
+function collectStatusEventsByTarget(events = []) {
+  const byTargetId = {};
+
+  (Array.isArray(events) ? events : []).forEach((event) => {
+    const targetId = event?.targetId;
+    if (!targetId) return;
+
     const statusesApplied = normalizeStatusMap(event?.statusesApplied);
+    const statusesTicked = normalizeStatusTickMap(event?.statusesTicked);
 
-    if (!targetId || !hasStatuses(statusesApplied)) return;
+    if (!hasStatuses(statusesApplied) && !hasStatusTicks(statusesTicked)) return;
 
-    byTargetId[targetId] = addStatusApplications(byTargetId[targetId], statusesApplied);
+    byTargetId[targetId] ||= [];
+    byTargetId[targetId].push({
+      statusesApplied,
+      statusesTicked,
+    });
   });
 
   return byTargetId;
@@ -231,6 +382,9 @@ function normalizeVisualEvent(event, index) {
     dodged: Boolean(event.dodged),
     blocked: Boolean(event.blocked),
     statusesApplied: normalizeStatusMap(event.statusesApplied),
+    statusesTicked: normalizeStatusTickMap(event.statusesTicked),
+    targetEffectiveStatsBefore: normalizeEffectiveStats(event.targetEffectiveStatsBefore),
+    targetEffectiveStatsAfter: normalizeEffectiveStats(event.targetEffectiveStatsAfter),
   };
 }
 
@@ -320,16 +474,22 @@ function mapBattleChars(player) {
 }
 
 export function buildInitialVisualStatusOverrides(player, queuedVisualEvents = []) {
-  const pendingStatusesByTarget = collectStatusApplicationsByTarget(queuedVisualEvents);
+  const pendingStatusEventsByTarget = collectStatusEventsByTarget(queuedVisualEvents);
   const charsById = mapBattleChars(player || {});
   const overrides = {};
 
-  Object.entries(pendingStatusesByTarget).forEach(([targetId, pendingStatuses]) => {
+  Object.entries(pendingStatusEventsByTarget).forEach(([targetId, pendingEvents]) => {
     const target = charsById.get(targetId);
     if (!target) return;
 
     const finalStatuses = normalizeStatusMap(target.statuses);
-    const visibleStatuses = subtractStatusMap(finalStatuses, pendingStatuses);
+    let visibleStatuses = finalStatuses;
+
+    for (let index = pendingEvents.length - 1; index >= 0; index -= 1) {
+      const event = pendingEvents[index];
+      visibleStatuses = restoreStatusTicks(visibleStatuses, event.statusesTicked);
+      visibleStatuses = subtractStatusMap(visibleStatuses, event.statusesApplied);
+    }
 
     if (!statusMapsEqual(visibleStatuses, finalStatuses)) {
       overrides[targetId] = visibleStatuses;
@@ -342,8 +502,11 @@ export function buildInitialVisualStatusOverrides(player, queuedVisualEvents = [
 export function applyVisualEventToStatusOverrides(currentOverrides = {}, player, event) {
   const targetId = event?.targetId;
   const statusesApplied = normalizeStatusMap(event?.statusesApplied);
+  const statusesTicked = normalizeStatusTickMap(event?.statusesTicked);
 
-  if (!targetId || !hasStatuses(statusesApplied)) return currentOverrides || {};
+  if (!targetId || (!hasStatuses(statusesApplied) && !hasStatusTicks(statusesTicked))) {
+    return currentOverrides || {};
+  }
 
   const target = mapBattleChars(player || {}).get(targetId);
   if (!target) return currentOverrides || {};
@@ -352,13 +515,66 @@ export function applyVisualEventToStatusOverrides(currentOverrides = {}, player,
   const currentStatuses = currentOverrides?.[targetId]
     ? normalizeStatusMap(currentOverrides[targetId])
     : finalStatuses;
-  const visibleStatuses = addStatusApplications(currentStatuses, statusesApplied, finalStatuses);
+  const visibleStatuses = applyStatusTicks(
+    addStatusApplications(currentStatuses, statusesApplied),
+    statusesTicked,
+  );
   const nextOverrides = { ...(currentOverrides || {}) };
 
   if (statusMapsEqual(visibleStatuses, finalStatuses)) {
     delete nextOverrides[targetId];
   } else {
     nextOverrides[targetId] = visibleStatuses;
+  }
+
+  return nextOverrides;
+}
+
+export function buildInitialVisualEffectiveStatsOverrides(player, queuedVisualEvents = []) {
+  const pendingStatEventsByTarget = collectEffectiveStatEventsByTarget(queuedVisualEvents);
+  const charsById = mapBattleChars(player || {});
+  const overrides = {};
+
+  Object.entries(pendingStatEventsByTarget).forEach(([targetId, pendingEvents]) => {
+    const target = charsById.get(targetId);
+    if (!target) return;
+
+    const finalStats = normalizeEffectiveStats(target.effectiveStats);
+    if (!finalStats) return;
+
+    let visibleStats = finalStats;
+
+    for (let index = pendingEvents.length - 1; index >= 0; index -= 1) {
+      const event = pendingEvents[index];
+      if (event.beforeStats) {
+        visibleStats = event.beforeStats;
+      }
+    }
+
+    if (!effectiveStatsEqual(visibleStats, finalStats)) {
+      overrides[targetId] = visibleStats;
+    }
+  });
+
+  return overrides;
+}
+
+export function applyVisualEventToEffectiveStatsOverrides(currentOverrides = {}, player, event) {
+  const targetId = event?.targetId;
+  const afterStats = normalizeEffectiveStats(event?.targetEffectiveStatsAfter);
+
+  if (!targetId || !afterStats) return currentOverrides || {};
+
+  const target = mapBattleChars(player || {}).get(targetId);
+  if (!target) return currentOverrides || {};
+
+  const finalStats = normalizeEffectiveStats(target.effectiveStats);
+  const nextOverrides = { ...(currentOverrides || {}) };
+
+  if (effectiveStatsEqual(afterStats, finalStats)) {
+    delete nextOverrides[targetId];
+  } else {
+    nextOverrides[targetId] = afterStats;
   }
 
   return nextOverrides;
@@ -387,7 +603,8 @@ export function shouldVisualEventTriggerDeath(player, event, remainingEvents = [
     targetChar &&
     Number(targetChar.health || 0) <= 0 &&
     !remainingEvents.some((item) => item?.targetId === event?.targetId) &&
-    kind !== 'heal'
+    kind !== 'heal' &&
+    kind !== 'status'
   );
 }
 
@@ -414,12 +631,18 @@ export function collectNewVisualEvents(prevPlayer, nextPlayer) {
 export function getVisualEventKind(event) {
   if (event?.dodged) return 'dodge';
   if (event?.blocked) return 'block';
+  const heal = getVisualEventHealAmount(event);
+  const damage = getVisualEventDamageAmount(event);
   if (
     event?.type === 'heal'
-    || getVisualEventHealAmount(event) > 0
+    || heal > 0
     || String(event?.effect || '').startsWith('heal')
   ) {
     return 'heal';
+  }
+
+  if (event?.type === 'statusTick' && damage <= 0) {
+    return 'status';
   }
 
   return 'damage';
@@ -472,12 +695,13 @@ export function applyBattleVisualEventToAnimations(
 
   const includeAttacker = options.includeAttacker !== false;
   const includeImpact = options.includeImpact !== false;
+  const includeDeath = options.includeDeath !== false;
   const nextAnimations = { ...currentAnimations };
   const targetId = event.targetId;
   const attackerId = event.attackerId;
   const kind = getVisualEventKind(event);
 
-  if (includeAttacker && kind !== 'heal' && attackerId && nextAnimations[attackerId]) {
+  if (includeAttacker && kind !== 'heal' && kind !== 'status' && attackerId && nextAnimations[attackerId]) {
     const current = nextAnimations[attackerId];
 
     nextAnimations[attackerId] = {
@@ -505,13 +729,16 @@ export function applyBattleVisualEventToAnimations(
     : event.effect || null;
   const effectToken = event.seq || event.id || (currentTarget.effect?.token || 0) + 1;
   const floatText = buildFloatTextForVisualEvent(event);
-  const shouldDieAfterThisEvent = shouldVisualEventTriggerDeath(player, event, remainingEvents);
+  const shouldDieAfterThisEvent = includeDeath
+    && shouldVisualEventTriggerDeath(player, event, remainingEvents);
 
   nextAnimations[targetId] = {
     ...currentTarget,
     hitToken: kind === 'heal'
       ? currentTarget.hitToken
-      : (currentTarget.hitToken || 0) + 1,
+      : kind === 'status'
+        ? currentTarget.hitToken
+        : (currentTarget.hitToken || 0) + 1,
     healToken: kind === 'heal'
       ? (currentTarget.healToken || 0) + 1
       : currentTarget.healToken,
@@ -525,7 +752,7 @@ export function applyBattleVisualEventToAnimations(
       ? {
         name: effectName,
         token: effectToken,
-        type: kind === 'heal' ? 'heal' : 'damage',
+        type: kind === 'heal' ? 'heal' : kind === 'status' ? 'status' : 'damage',
       }
       : null,
     floatText: floatText
@@ -535,10 +762,12 @@ export function applyBattleVisualEventToAnimations(
         token: event.seq || event.id,
       }
       : null,
-    impact: {
-      type: kind,
-      token: event.seq || event.id,
-    },
+    impact: kind === 'status'
+      ? currentTarget.impact
+      : {
+        type: kind,
+        token: event.seq || event.id,
+      },
   };
 
   return nextAnimations;
@@ -556,6 +785,12 @@ export function diffBattleAnimations(prevPlayer, nextPlayer, prevAnimations = {}
   const newVisualEvents = collectNewVisualEvents(prevPlayer, nextPlayer);
   const visualTargetIds = new Set(newVisualEvents.map((event) => event.targetId).filter(Boolean));
   const visualAttackerIds = new Set(newVisualEvents.map((event) => event.attackerId).filter(Boolean));
+  const visualTurnActorIds = new Set(
+    newVisualEvents
+      .filter((event) => event?.phase === 'turnStartStatus')
+      .map((event) => event.targetId)
+      .filter(Boolean),
+  );
   const shouldQueueVisualEvents = !playVisualEvents && newVisualEvents.length > 0;
   const visualEventsByTargetId = new Map();
 
@@ -568,6 +803,7 @@ export function diffBattleAnimations(prevPlayer, nextPlayer, prevAnimations = {}
       || event.mask
       || event.maskFailed
       || Object.keys(event.statusesApplied || {}).length > 0
+      || Object.keys(event.statusesTicked || {}).length > 0
     );
 
     if (!event.targetId || (!event.effect && !hasVisualValue)) return;
@@ -583,7 +819,10 @@ export function diffBattleAnimations(prevPlayer, nextPlayer, prevAnimations = {}
     const nextChar = nextChars.get(id);
     const nextAlive = nextChar ? nextChar.health > 0 : false;
     const suppressVisualFallback = shouldQueueVisualEvents && visualTargetIds.has(id);
-    const suppressTurnToken = shouldQueueVisualEvents && visualAttackerIds.has(id);
+    const suppressTurnToken = shouldQueueVisualEvents && (
+      visualAttackerIds.has(id) ||
+      visualTurnActorIds.has(id)
+    );
     const animation = cloneAnimationEntry(prevAnimations[id], nextAlive, !suppressVisualFallback);
     let effectChanged = false;
 
@@ -609,7 +848,7 @@ export function diffBattleAnimations(prevPlayer, nextPlayer, prevAnimations = {}
 
         if (type === 'heal') {
           animation.healToken += visualEvents.length;
-        } else {
+        } else if (type !== 'status') {
           animation.hitToken += visualEvents.length;
         }
 
@@ -695,6 +934,7 @@ export function buildBattleView(player, animations = {}, options = {}) {
     visualEvents: player.session?.battle?.visualEvents || [],
     unmaskOptions: player.session?.battle?.unmaskOptions || [],
     statusOverridesByCharId: options.statusOverridesByCharId || {},
+    effectiveStatsOverridesByCharId: options.effectiveStatsOverridesByCharId || {},
     animations,
   };
 }

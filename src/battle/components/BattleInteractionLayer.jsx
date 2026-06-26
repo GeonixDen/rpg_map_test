@@ -1,6 +1,19 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { formatTargetImpactLine } from '../lib/battleActionCards.js';
+import { APP_CONFIG } from '../../config/appConfig.js';
+
+const ACTION_PANEL_CONFIG = APP_CONFIG.battle?.actionPanel || {};
+
+function numberOr(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+const ACTION_PANEL_WIDTH = numberOr(ACTION_PANEL_CONFIG.width, 188);
+const ACTION_PANEL_GAP = numberOr(ACTION_PANEL_CONFIG.gap, 8);
+const ACTION_PANEL_SCREEN_PADDING = numberOr(ACTION_PANEL_CONFIG.screenPadding, 12);
+const ACTION_PANEL_VERTICAL_OFFSET = numberOr(ACTION_PANEL_CONFIG.verticalOffsetFactor, 0.62);
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -41,6 +54,43 @@ function getActorAnchor(actorId, spriteByActorId, viewport, scene, layerSize, op
   return {
     x: Math.round(clamp(point.x, xPadding, Math.max(xPadding, layerSize.width - xPadding))),
     y: Math.round(clamp(point.y, minY, maxY)),
+  };
+}
+
+function getActorScreenAnchor(actorId, spriteByActorId, viewport, scene, layerRect, panelSize, uiScale = 1) {
+  if (typeof window === 'undefined' || !layerRect) return null;
+
+  const sprite = spriteByActorId.get(actorId);
+  if (!sprite) return null;
+
+  const point = projectSpritePoint(
+    sprite,
+    viewport,
+    scene,
+    {
+      width: layerRect.width,
+      height: layerRect.height,
+    },
+    ACTION_PANEL_VERTICAL_OFFSET,
+  );
+  const viewportPadding = ACTION_PANEL_SCREEN_PADDING;
+  const panelGap = Math.round(ACTION_PANEL_GAP * uiScale);
+  const fallbackPanelWidth = Math.max(
+    1,
+    Math.min(Math.round(ACTION_PANEL_WIDTH * uiScale), window.innerWidth - viewportPadding * 2),
+  );
+  const panelWidth = panelSize?.width || fallbackPanelWidth;
+  const panelHeight = panelSize?.height || 0;
+  const screenX = layerRect.left + point.x;
+  const screenY = layerRect.top + point.y;
+  const minX = viewportPadding + panelWidth / 2;
+  const maxX = Math.max(minX, window.innerWidth - viewportPadding - panelWidth / 2);
+  const minY = viewportPadding + panelHeight + panelGap;
+  const maxY = Math.max(minY, window.innerHeight - viewportPadding);
+
+  return {
+    x: Math.round(clamp(screenX, minX, maxX)),
+    y: Math.round(clamp(screenY, minY, maxY)),
   };
 }
 
@@ -241,16 +291,51 @@ function SelectedActorPanel({
   activeCardId,
   onCardPointerDown,
   onCancelSelection,
+  onPanelSizeChange,
+  uiScale = 1,
+  floating = false,
   hidden = false,
 }) {
+  const panelRef = useRef(null);
+
+  useEffect(() => {
+    const node = panelRef.current;
+    if (!node || hidden) return undefined;
+
+    const reportSize = () => {
+      const rect = node.getBoundingClientRect();
+      onPanelSizeChange?.({
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      });
+    };
+
+    reportSize();
+
+    const resizeObserver = new ResizeObserver(reportSize);
+    resizeObserver.observe(node);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [actionCards.length, hidden, onPanelSizeChange]);
+
   if (!anchor || actionCards.length === 0 || hidden) return null;
 
   return (
     <div
-      className="battle-test__actor-panel"
+      ref={panelRef}
+      className={[
+        'battle-test__actor-panel',
+        floating ? 'battle-test__actor-panel--floating' : '',
+      ].filter(Boolean).join(' ')}
       style={{
         left: `${anchor.x}px`,
         top: `${anchor.y}px`,
+        '--battle-ui-scale': uiScale,
+        '--battle-action-panel-width': `${ACTION_PANEL_WIDTH}px`,
+        '--battle-action-panel-gap': `${ACTION_PANEL_GAP}px`,
+        '--battle-action-panel-screen-padding': `${ACTION_PANEL_SCREEN_PADDING}px`,
       }}
     >
       <div className="battle-test__actor-panel-shell">
@@ -314,6 +399,14 @@ export default function BattleInteractionLayer({
   const [passiveHoveredActorId, setPassiveHoveredActorId] = useState(null);
   const [lastTooltipSelection, setLastTooltipSelection] = useState(null);
   const [floatingTooltipStyle, setFloatingTooltipStyle] = useState(null);
+  const [actorPanelSize, setActorPanelSize] = useState({ width: 0, height: 0 });
+  const handleActorPanelSizeChange = useCallback((nextSize) => {
+    setActorPanelSize((current) => (
+      current.width === nextSize.width && current.height === nextSize.height
+        ? current
+        : nextSize
+    ));
+  }, []);
 
   const selectableSet = useMemo(() => new Set(selectableActorIds), [selectableActorIds]);
   const targetableSet = useMemo(() => new Set(targetableIds), [targetableIds]);
@@ -642,13 +735,30 @@ export default function BattleInteractionLayer({
     : null;
 
   const selectedActorAnchor = selectedActorId
-    ? getActorAnchor(selectedActorId, spriteByActorId, viewport, scene, layerSize, {
-      verticalOffsetFactor: 0.62,
-      xPadding: 132,
-      minY: 186,
-      maxY: layerSize.height - 24,
-    })
+    ? getActorScreenAnchor(
+      selectedActorId,
+      spriteByActorId,
+      viewport,
+      scene,
+      layerRef.current?.getBoundingClientRect(),
+      actorPanelSize,
+      uiScale,
+    )
     : null;
+  const selectedActorPanel = (
+    <SelectedActorPanel
+      anchor={selectedActorAnchor}
+      actorName={selectedActor?.stats?.name}
+      actionCards={actionCards}
+      activeCardId={activeCardId}
+      onCardPointerDown={handleCardPointerDown}
+      onCancelSelection={handleCancelSelection}
+      onPanelSizeChange={handleActorPanelSizeChange}
+      uiScale={uiScale}
+      floating
+      hidden={Boolean(dragState)}
+    />
+  );
 
   return (
     <div ref={layerRef} className="battle-test__interaction">
@@ -725,15 +835,9 @@ export default function BattleInteractionLayer({
         );
       })}
 
-      <SelectedActorPanel
-        anchor={selectedActorAnchor}
-        actorName={selectedActor?.stats?.name}
-        actionCards={actionCards}
-        activeCardId={activeCardId}
-        onCardPointerDown={handleCardPointerDown}
-        onCancelSelection={handleCancelSelection}
-        hidden={Boolean(dragState)}
-      />
+      {typeof document !== 'undefined'
+        ? createPortal(selectedActorPanel, document.body)
+        : selectedActorPanel}
     </div>
   );
 }

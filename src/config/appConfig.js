@@ -229,6 +229,13 @@ export const APP_CONFIG = {
   },
 
   battle: {
+    actionPanel: {
+      width: 188,
+      gap: 3,
+      screenPadding: 12,
+      verticalOffsetFactor: 0.44,
+    },
+
     visualQueue: {
       impactDelayMs: 58,
       stepMs: 215,
@@ -409,6 +416,8 @@ export const APP_CONFIG = {
         },
         removeDeadAfterMs: 880,
         removeDeadFadeMs: 420,
+        deathAfterImpactMs: 210,
+        resultRevealDelayMs: 140,
         deadOpacity: 0.16,
         deadDropY: -18,
         deadScale: 0.88,
@@ -417,6 +426,15 @@ export const APP_CONFIG = {
         deadFadeDropY: -34,
         deadFadeScale: 0.72,
         deadFadeRotation: 0.075,
+        uiSettleMs: 260,
+        uiDeadOpacity: 0.38,
+        uiDetailDeadOpacity: 0.16,
+        uiDeadDropY: 2,
+        uiDeadScale: 0.96,
+        uiFadeOpacity: 0,
+        uiFadeDropY: 8,
+        uiFadeScale: 0.86,
+        uiFadeBlur: 1.2,
       },
     },
   },
