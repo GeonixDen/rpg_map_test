@@ -18,6 +18,34 @@ function logIncoming(source, payload) {
   console.groupEnd();
 }
 
+function logBossSceneDiagnostics(source, payload) {
+  const battleState = payload?.battleState;
+  const battle = battleState?.player?.session?.battle;
+  const bossScene = battle?.bossScene || null;
+  const bossChar = battleState?.player?.enemyChars?.find((char) => char?.isBoss || char?.bossId) || null;
+
+  if (!battleState || (!battle?.boss && !bossChar && !bossScene)) return;
+
+  const summary = {
+    uiState: battleState?.uiState?.type || null,
+    bossId: bossScene?.id || battle?.boss?.id || bossChar?.bossId || null,
+    bossCharId: bossScene?.charId || bossChar?.id || null,
+    queueLength: Array.isArray(bossScene?.queue) ? bossScene.queue.length : 0,
+    roundLimit: Number(bossScene?.roundLimit || 0),
+    actionPoints: Number(bossScene?.actionPoints || 0),
+    roundActionPoints: Number(bossScene?.roundActionPoints || 0),
+    source: bossScene?.debug?.source || null,
+    debug: bossScene?.debug || null,
+  };
+
+  if (!summary.queueLength || summary.roundLimit <= 0) {
+    console.warn(`[map-demo:${source}] bossScene incomplete`, summary, bossScene);
+    return;
+  }
+
+  console.log(`[map-demo:${source}] bossScene`, summary);
+}
+
 function getTelegramInitData() {
   return window?.Telegram?.WebApp?.initData || '';
 }
@@ -465,6 +493,7 @@ export const useMapDemoStore = create((set, get) => ({
           isSettled = true;
           window.clearTimeout(timeout);
           logIncoming('socket:action', result);
+          logBossSceneDiagnostics('socket:action', result);
           get().handleServerActionResult(result, 'socket');
 
           resolve(result);
@@ -486,6 +515,7 @@ export const useMapDemoStore = create((set, get) => ({
       });
       const result = await response.json();
       logIncoming('api:action', result);
+      logBossSceneDiagnostics('api:action', result);
       const mapState = result?.mapState;
       const handled = get().handleServerActionResult(result, 'http', { responseOk: response.ok });
 
@@ -587,6 +617,7 @@ export const useMapDemoStore = create((set, get) => ({
       });
       const result = await response.json();
       logIncoming('api:action:refresh', result);
+      logBossSceneDiagnostics('api:action:refresh', result);
       get().applyActionMapStateResult(result, 'http');
       const mapState = getMapStateFromAction(result);
       const uiType = normalizeUiType(getActionResultUiType({ uiState: mapState?.uiState }));

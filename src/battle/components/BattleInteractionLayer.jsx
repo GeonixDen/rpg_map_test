@@ -781,8 +781,8 @@ export default function BattleInteractionLayer({
       ) : null}
 
       {sprites.map((sprite) => {
-        const hitWidth = sprite.drawHeight * 0.78;
-        const hitHeight = sprite.drawHeight * 0.92;
+        const hitWidth = Number(sprite.hitWidth) || sprite.drawHeight * 0.78;
+        const hitHeight = Number(sprite.hitHeight) || sprite.drawHeight * 0.92;
         const isSelectable = selectableSet.has(sprite.charId);
         const isTargetable = targetableSet.has(sprite.charId);
         const isUnmaskTarget = unmaskTargetSet.has(sprite.charId);

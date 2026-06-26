@@ -81,7 +81,6 @@ export const APP_CONFIG = {
     },
     follow: {
       smoothing: 9,
-      movementSmoothing: 6.5,
     },
   },
 
@@ -90,7 +89,6 @@ export const APP_CONFIG = {
     minStepMs: 42,
     maxDurationMs: 2400,
     easing: 'smootherstep',
-    cameraEasing: 'linear',
   },
 
   lod: {
@@ -229,6 +227,22 @@ export const APP_CONFIG = {
   },
 
   battle: {
+    boss: {
+      sceneWidth: 300,
+      sceneHeight: 480,
+      spriteDrawHeight: 480,
+      spriteCenterYOffset: 0,
+      effectOffsetScale: 1,
+      maxStatusIcons: 6,
+      hud: {
+        visibleQueueRows: 2,
+        queueRowHeight: 34,
+        queueMinWidth: 168,
+        queueHeaderHeight: 6,
+        padding: 10,
+      },
+    },
+
     actionPanel: {
       width: 188,
       gap: 3,
@@ -253,6 +267,18 @@ export const APP_CONFIG = {
         leaveScale: 1.24,
         enterOpacity: 0.98,
       },
+    },
+
+    unmaskIndicator: {
+      effectName: 'magic_mask',
+      size: 66,
+      yOffset: -4,
+      bossSize: 96,
+      bossYOffset: -16,
+      opacity: 0.82,
+      pulseScale: 1.08,
+      pulseMs: 1450,
+      glowColor: 'rgba(255, 220, 140, 0.52)',
     },
 
     statusEffects: {

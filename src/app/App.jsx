@@ -172,24 +172,8 @@ export default function App() {
       ...(liveLayers?.huntTiles || EMPTY_ARRAY),
       ...(liveLayers?.enemies || EMPTY_ARRAY),
       ...(liveLayers?.npcs || EMPTY_ARRAY),
-      ...(activeMovementAnimation ? EMPTY_ARRAY : [liveOnSelectedMap.player]),
     ].filter(Boolean);
-  }, [activeMovementAnimation, liveLayers, liveOnSelectedMap]);
-  const playerFollowTarget = useMemo(() => {
-    if (!serverPlayer || !model) return null;
-
-    const x = Number(serverPlayer.x);
-    const y = Number(serverPlayer.y);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-
-    const world = tileToWorld(x, y, model.dimensions);
-    return {
-      x,
-      y,
-      worldX: world.x,
-      worldY: world.y,
-    };
-  }, [model, serverPlayer]);
+  }, [liveLayers, liveOnSelectedMap]);
   const lockedHoverTile = useMemo(() => {
     const canShowLockedTile =
       selectedActionTile?.mapId === selected?.id &&
@@ -272,13 +256,12 @@ export default function App() {
         model={model}
         cameraMode={cameraMode}
         showTransitionLabels={showTransitionLabels}
-        followTarget={playerFollowTarget}
         interactionEnabled={mapInteractionEnabled}
         lockedHoverTile={lockedHoverTile}
         hoverLayers={liveLayers}
         actionsByTile={actionsByTile}
         movementAnimation={activeMovementAnimation}
-        movingEntity={activeMovementAnimation ? serverPlayer : null}
+        playerEntity={serverPlayer}
         onMovementComplete={clearMovementAnimation}
         onTileClick={handleTileClick}
         otherPlayers={otherPlayers}

@@ -3,8 +3,6 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { MapControls } from '@react-three/drei';
 import { MOUSE, Vector3 } from 'three';
 import { APP_CONFIG } from '../config/appConfig.js';
-import { tileToWorld } from '../utils/mapModel.js';
-import { sampleMovementPath } from '../utils/movementPath.js';
 
 function easeOutCubic(t) {
   return 1 - Math.pow(1 - t, 3);
@@ -62,19 +60,12 @@ function getFitZoom(dimensions, size, cameraConfig) {
   );
 }
 
-function getFollowWorldPoint(followTarget, followAnimation, dimensions) {
-  const animatedPoint = sampleMovementPath(followAnimation, undefined, {
-    easing: APP_CONFIG.movement.cameraEasing,
-  });
-  if (animatedPoint && dimensions) {
-    const world = tileToWorld(animatedPoint.x, animatedPoint.y, dimensions);
-    return { worldX: world.x, worldY: world.y };
-  }
-
-  return followTarget;
+function getFollowWorldPoint(followWorldRef) {
+  const world = followWorldRef?.current;
+  return Number.isFinite(world?.worldX) && Number.isFinite(world?.worldY) ? world : null;
 }
 
-export default function CameraController({ dimensions, mode = 'follow', followTarget, followAnimation }) {
+export default function CameraController({ dimensions, mode = 'follow', followWorldRef }) {
   const controlsRef = useRef(null);
   const flyToRef = useRef(null);
   const [controlsReady, setControlsReady] = useState(false);
@@ -157,10 +148,10 @@ export default function CameraController({ dimensions, mode = 'follow', followTa
       return;
     }
 
-    const target = isFullMap ? null : getFollowWorldPoint(followTarget, followAnimation, dimensions);
+    const target = isFullMap ? null : getFollowWorldPoint(followWorldRef);
     if (!target) return;
 
-    const smoothing = followAnimation ? cameraConfig.follow.movementSmoothing : cameraConfig.follow.smoothing;
+    const smoothing = cameraConfig.follow.smoothing;
     const alpha = 1 - Math.exp(-delta * smoothing);
     const targetPosition = new Vector3(target.worldX, target.worldY, cameraConfig.positionZ);
     const targetZoom = getFollowZoom(size, cameraConfig, gl);

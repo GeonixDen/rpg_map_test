@@ -1,7 +1,8 @@
-import React, { memo, Suspense } from 'react';
+import React, { memo, Suspense, useEffect, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrthographicCamera } from '@react-three/drei';
 import { APP_CONFIG } from '../config/appConfig.js';
+import { tileToWorld } from '../utils/mapModel.js';
 import CameraController from './CameraController.jsx';
 import InteractionLayer from './InteractionLayer.jsx';
 import AnimatedEntityLayer from './layers/AnimatedEntityLayer.jsx';
@@ -17,13 +18,12 @@ function MapScene({
   model,
   cameraMode,
   showTransitionLabels,
-  followTarget,
   interactionEnabled = true,
   lockedHoverTile,
   hoverLayers,
   actionsByTile,
   movementAnimation,
-  movingEntity,
+  playerEntity,
   onMovementComplete,
   onTileClick,
   onRenderStats,
@@ -32,6 +32,19 @@ function MapScene({
   actors = [],
 }) {
   const { renderer, camera } = APP_CONFIG;
+  const playerWorldRef = useRef(null);
+
+  useEffect(() => {
+    const x = Number(playerEntity?.x);
+    const y = Number(playerEntity?.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !model?.dimensions) {
+      playerWorldRef.current = null;
+      return;
+    }
+
+    const world = tileToWorld(x, y, model.dimensions);
+    playerWorldRef.current = { worldX: world.x, worldY: world.y };
+  }, [model?.dimensions, playerEntity]);
 
   return (
     <Canvas className="map-canvas" dpr={renderer.dpr} gl={renderer.gl}>
@@ -66,12 +79,13 @@ function MapScene({
           renderOrder={APP_CONFIG.dynamicEntities.actors.renderOrder}
         />
         <AnimatedEntityLayer
-          entity={movingEntity}
+          entity={playerEntity}
           animation={movementAnimation}
           dimensions={model.dimensions}
           mapType={model.mapType}
           z={APP_CONFIG.dynamicEntities.actors.z}
           renderOrder={APP_CONFIG.dynamicEntities.actors.renderOrder + 1}
+          worldPositionRef={playerWorldRef}
           onComplete={onMovementComplete}
         />
         <InteractionLayer
@@ -87,8 +101,7 @@ function MapScene({
       <CameraController
         dimensions={model.dimensions}
         mode={cameraMode}
-        followTarget={followTarget}
-        followAnimation={movementAnimation}
+        followWorldRef={playerWorldRef}
       />
     </Canvas>
   );

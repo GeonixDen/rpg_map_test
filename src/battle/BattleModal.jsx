@@ -785,6 +785,7 @@ function BattleScene({
   const mapId = battleView?.mapId || 'betweenworlds';
   const validChars = battleView?.validChars || [];
   const enemyChars = battleView?.enemyChars || [];
+  const bossScene = battleView?.bossScene || null;
   const actedCharacters = battleView?.actedCharacters || [];
   const enemiesResponded = battleView?.enemiesResponded || [];
   const animations = battleView?.animations || {};
@@ -794,26 +795,35 @@ function BattleScene({
   const actionState = battleView?.actionState || null;
   const unmaskOptions = Array.isArray(battleView?.unmaskOptions) ? battleView.unmaskOptions : [];
   const fleeInfo = getBattleFleeInfo(battleView?.rawPlayer);
+  const unmaskTargetIds = useMemo(() => (
+    unmaskOptions
+      .map((option) => option.targetId)
+      .filter(Boolean)
+  ), [unmaskOptions]);
 
   const sceneModel = useMemo(() => buildBattleSceneModel({
     mapId,
     validChars,
     enemyChars,
+    bossScene,
     actedCharacters,
     enemiesResponded,
     animations,
     statusOverridesByCharId,
     effectiveStatsOverridesByCharId,
     catalogs,
+    unmaskTargetIds,
   }), [
     actedCharacters,
     animations,
+    bossScene,
     catalogs,
     effectiveStatsOverridesByCharId,
     enemiesResponded,
     enemyChars,
     mapId,
     statusOverridesByCharId,
+    unmaskTargetIds,
     validChars,
   ]);
 
@@ -892,6 +902,10 @@ function BattleScene({
   );
   const actionCardsByActorId = useMemo(() => Object.fromEntries(
     allBattleChars.map((char) => {
+      if (char.side !== 'player') {
+        return [char.id, []];
+      }
+
       const serverCards = actionState
         ? buildServerActionCardsForActor(actionState, char.id, catalogs.statuses)
         : null;
@@ -930,11 +944,6 @@ function BattleScene({
       ))
       .map((char) => char.id)
   ), [actedSet, actionState, battleActive, validChars]);
-  const unmaskTargetIds = useMemo(() => (
-    unmaskOptions
-      .map((option) => option.targetId)
-      .filter(Boolean)
-  ), [unmaskOptions]);
   const targetableIds = useMemo(() => {
     if (!selectedActorRaw || !activeCard || activeCard.blockedReason || busy) return [];
 

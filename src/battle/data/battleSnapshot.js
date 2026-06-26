@@ -236,6 +236,16 @@ function effectiveStatsEqual(left = null, right = null) {
   );
 }
 
+function getServerBackedEffectiveStats(char) {
+  if (!char) return null;
+
+  try {
+    return getEffectiveStats(char);
+  } catch {
+    return char.effectiveStats || null;
+  }
+}
+
 function addStatusApplications(baseStatuses = {}, appliedStatuses = {}) {
   const next = { ...normalizeStatusMap(baseStatuses) };
 
@@ -861,10 +871,10 @@ export function diffBattleAnimations(prevPlayer, nextPlayer, prevAnimations = {}
           : null;
         effectChanged = true;
       } else if (!suppressVisualFallback && nextChar.health < prevChar.health) {
-        const effectiveStats = getEffectiveStats(nextChar);
+        const effectiveStats = getServerBackedEffectiveStats(nextChar);
         animation.hitToken += 1;
         animation.effect = {
-          name: nextChar.justHitEffect || effectiveStats.hitEffect || 'blade',
+          name: nextChar.justHitEffect || effectiveStats?.hitEffect || 'blade',
           token: (animation.effect?.token || 0) + 1,
           type: 'damage',
         };
@@ -933,6 +943,7 @@ export function buildBattleView(player, animations = {}, options = {}) {
     actionState: player.session?.battle?.actionState || null,
     visualEvents: player.session?.battle?.visualEvents || [],
     unmaskOptions: player.session?.battle?.unmaskOptions || [],
+    bossScene: player.session?.battle?.bossScene || null,
     statusOverridesByCharId: options.statusOverridesByCharId || {},
     effectiveStatsOverridesByCharId: options.effectiveStatsOverridesByCharId || {},
     animations,

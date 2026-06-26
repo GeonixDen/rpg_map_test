@@ -10,6 +10,370 @@ export function createSvgTexture(svg) {
   return svg ? svgToDataUri(svg) : null;
 }
 
+function escapeSvgText(str = '') {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function approxTextWidth(text, fontSize = 12, factor = 0.58) {
+  return Math.ceil(String(text || '').length * fontSize * factor);
+}
+
+function ellipsize(text, maxChars = 26) {
+  const value = String(text || '');
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, Math.max(1, maxChars - 1))}…`;
+}
+
+function buildBevelPolygonPoints(x, y, width, height, cut = 8) {
+  const w = Math.max(0, Number(width) || 0);
+  const h = Math.max(0, Number(height) || 0);
+  if (w <= 0 || h <= 0) return '';
+
+  const c = Math.max(0, Math.min(
+    Number(cut) || 0,
+    Math.max(0, w / 2 - 1),
+    Math.max(0, h / 2 - 1),
+  ));
+
+  return [
+    `${x + c},${y}`,
+    `${x + w - c},${y}`,
+    `${x + w},${y + c}`,
+    `${x + w},${y + h - c}`,
+    `${x + w - c},${y + h}`,
+    `${x + c},${y + h}`,
+    `${x},${y + h - c}`,
+    `${x},${y + c}`,
+  ].join(' ');
+}
+
+function buildInsetBevelPolygonPoints(x, y, width, height, cut = 8, inset = 2) {
+  const innerW = Math.max(0, (Number(width) || 0) - inset * 2);
+  const innerH = Math.max(0, (Number(height) || 0) - inset * 2);
+  if (innerW <= 0 || innerH <= 0) return '';
+
+  return buildBevelPolygonPoints(
+    x + inset,
+    y + inset,
+    innerW,
+    innerH,
+    Math.max(0, (Number(cut) || 0) - inset),
+  );
+}
+
+function getBossQueuePreviewPlateWidth(previewLabel) {
+  const previewTextWidth = Math.max(16, Math.ceil(approxTextWidth(previewLabel || '—', 12, 0.6)));
+  return Math.max(52, previewTextWidth + 42);
+}
+
+function getBossQueueTitleWidth(name, {
+  fontSize = 11,
+  fontFactor = 0.6,
+  maxChars = 40,
+  minWidth = 32,
+} = {}) {
+  const titleText = ellipsize(name, maxChars);
+  const textWidth = Math.ceil(approxTextWidth(titleText, fontSize, fontFactor));
+  return Math.max(minWidth, textWidth);
+}
+
+function getBossQueueRowWidth(item) {
+  const previewPlateWidth = getBossQueuePreviewPlateWidth(item?.previewLabel);
+  const titleWidth = getBossQueueTitleWidth(item?.name);
+  return titleWidth + previewPlateWidth + 32;
+}
+
+export function getBossHudLayout(width, height, model, config = {}) {
+  const padding = Number(config.padding) || 10;
+  const sceneWidth = Number(model?.scene?.width || config.sceneWidth) || 300;
+  const visibleRowsLimit = Number(config.visibleQueueRows) || 2;
+  const queueLength = Array.isArray(model?.queue) ? model.queue.length : 0;
+  const visibleQueueRows = Math.max(1, Math.min(visibleRowsLimit, queueLength || 1));
+  const queueRowH = Number(config.queueRowHeight) || 34;
+  const queueHeaderH = Number(config.queueHeaderHeight) || 6;
+  const queueOverflowH = queueLength > visibleQueueRows ? 14 : 0;
+  const queueH = queueHeaderH + visibleQueueRows * queueRowH + queueOverflowH;
+
+  let maxQueueRowWidth = 0;
+  if (Array.isArray(model?.queue)) {
+    model.queue.slice(0, visibleQueueRows).forEach((item) => {
+      maxQueueRowWidth = Math.max(maxQueueRowWidth, getBossQueueRowWidth(item));
+    });
+  }
+
+  const queueW = Math.max(Number(config.queueMinWidth) || 168, maxQueueRowWidth);
+  const bossNameText = ellipsize(model?.bossName, 40);
+  const nameTextW = Math.ceil(approxTextWidth(bossNameText, 13, 0.65));
+  const barW = sceneWidth - 20;
+  const bossCenterX = width - Math.floor(sceneWidth / 2);
+  const infoW = Math.max(60, nameTextW + 32);
+  const defW = Math.ceil(approxTextWidth(String(model?.defence ?? 0), 12, 0.6));
+  const dodgeW = Math.ceil(approxTextWidth(`${model?.dodgePct ?? 0}%`, 12, 0.6));
+  const statsW = Math.max(64, Math.max(defW, dodgeW) + 46);
+
+  return {
+    info: {
+      bgX: bossCenterX - Math.floor(infoW / 2),
+      bgY: padding + 18,
+      bgW: infoW,
+      bgH: 22,
+      nameX: bossCenterX,
+      y: padding + 33,
+    },
+    bar: {
+      x: bossCenterX - Math.floor(barW / 2),
+      y: padding,
+      w: barW,
+      h: 14,
+    },
+    stats: {
+      x: width - statsW - padding,
+      y: height - queueH - padding - 60,
+      w: statsW,
+      h: 24,
+      gap: 6,
+    },
+    queue: {
+      x: width - queueW - padding,
+      y: height - queueH - padding,
+      w: queueW,
+      h: queueH,
+      headerH: queueHeaderH,
+      rowH: queueRowH,
+      visibleRows: visibleQueueRows,
+    },
+    status: {
+      right: width - padding,
+      bottom: height - queueH - padding - 66,
+    },
+  };
+}
+
+function getBossStatIconSvg(type, { heal = false } = {}) {
+  if (type === 'attack') {
+    if (heal) {
+      return '<svg width="14" height="14" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" fill="#6ce597"/></svg>';
+    }
+
+    return '<svg width="14" height="14" viewBox="0 0 24 24"><path d="M19.3,2.7c-0.8-0.8-2-0.8-2.8,0l-9.9,9.9L4,10.1l-2,2l4.2,4.2L2.7,19.8L4.2,21.3l3.5-3.5l4.2,4.2l2-2l-2.5-2.5l9.9-9.9 C22.1,6.8,22.1,5.5,21.3,4.7L19.3,2.7z" fill="#ff6f61"/></svg>';
+  }
+
+  if (type === 'defence') {
+    return '<svg width="14" height="14" viewBox="0 0 12 12"><path d="M6 1 L11 3 V6 C11 8.8 8.9 11 6 12 C3.1 11 1 8.8 1 6 V3 Z" fill="#ffffff" fill-opacity="0.95"/><path d="M3 3.4 C3.6 2.9 4.7 2.4 6 2.1 V9.6 C4.5 8.9 3.4 7.6 3.1 6 Z" fill="#ffffff" fill-opacity="0.35"/></svg>';
+  }
+
+  if (type === 'dodge') {
+    return '<svg width="14" height="14" viewBox="0 0 32 32" preserveAspectRatio="xMidYMid meet"><path d="M27.026 8.969c0.743-0.896 1.226-2.154 1.226-3.562 0-2.543-1.512-4.65-3.448-4.902-0.129-0.020-0.267 0-0.399 0-0.791 0-1.527 0.305-2.139 0.827l-21.218 1.536 19.521 1.414v0.744c-0.004 0.068-0.007 0.136-0.009 0.205l-19.512 1.413 19.515 1.413v0.949l-19.515 1.413 17.355 1.257v0.262c-0.127 0.324-0.237 0.667-0.333 1.023l-17.023 1.233 16.231 1.175v1.219l-16.231 1.175 16.26 1.177v1.42l-16.26 1.177 18.883 1.367v1.040l-18.883 1.367 19.358 1.402v0.971l-19.358 1.401 19.633 1.422 0.047 0.72h7.096l0.741-9.947h2.793c0-4.765-0.305-11.554-4.332-12.312zM21.202 8.102c0.001 0.002 0.002 0.005 0.004 0.007l-0.064-0.011 0.061 0.004z" fill="#ffffff"/></svg>';
+  }
+
+  return '<svg width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="#d7c08a"/></svg>';
+}
+
+function buildBossStatPill(x, y, width, value, type, { heal = false } = {}) {
+  const icon = getBossStatIconSvg(type, { heal });
+  const accent = heal ? '#7ce5a2' : (type === 'attack' ? '#ffcf8a' : '#e7edf6');
+  const accentFill = heal
+    ? 'rgba(108,229,151,0.18)'
+    : (type === 'attack' ? 'rgba(255,206,0,0.16)' : 'rgba(255,255,255,0.07)');
+  const valueText = escapeSvgText(String(value || '0'));
+  const outerPoints = buildBevelPolygonPoints(0, 0, width, 24, 7);
+  const innerPoints = buildInsetBevelPolygonPoints(0, 0, width, 24, 7, 1.5);
+  const accentPoints = buildInsetBevelPolygonPoints(width - 28, 0, 28, 24, 7, 1.5);
+
+  return `
+  <g transform="translate(${x}, ${y})">
+    <polygon points="${outerPoints}" fill="#0b110d" stroke="rgba(255,255,255,0.12)" stroke-width="1" />
+    <polygon points="${innerPoints}" fill="#0d1313" />
+    <polygon points="${accentPoints}" fill="${accentFill}" />
+    <path d="M 6 5 L ${Math.max(8, width - 8)} 5" stroke="rgba(255,255,255,0.04)" stroke-width="1" />
+    <g transform="translate(${width - 22}, 5)">${icon}</g>
+    <text x="${width - 32}" y="16.5" text-anchor="end" fill="${accent}" font-family="Tahoma, sans-serif" font-size="12" font-weight="800">${valueText}</text>
+  </g>`;
+}
+
+function buildBossApTicks(x, y, count, filled, {
+  size = 8,
+  gap = 3,
+  activeBase = '#aa8800',
+  activeHighlight = '#ffce00',
+  activeStroke = '#000000',
+  inactiveBase = '#222222',
+  inactiveHighlight = '#555555',
+  inactiveStroke = 'rgba(255,255,255,0.18)',
+} = {}) {
+  return Array.from({ length: Math.max(0, count) }, (_, idx) => {
+    const left = x + idx * (size + gap);
+    const top = y;
+    const active = idx < filled + 1;
+    const cx = left + size / 2;
+    const cy = top + size / 2;
+    const topP = `${cx},${top}`;
+    const rightP = `${left + size},${cy}`;
+    const bottomP = `${cx},${top + size}`;
+    const leftP = `${left},${cy}`;
+    const fullRhombus = `${topP} ${rightP} ${bottomP} ${leftP}`;
+    const topHalf = `${leftP} ${topP} ${rightP} ${cx},${cy}`;
+
+    return `
+  <polygon points="${fullRhombus}" fill="${active ? activeBase : inactiveBase}" stroke="${active ? activeStroke : inactiveStroke}" stroke-width="1" stroke-linejoin="round" />
+  <polygon points="${topHalf}" fill="${active ? activeHighlight : inactiveHighlight}" />`;
+  }).join('');
+}
+
+function getBossApTicksWidth(count, { size = 8, gap = 3 } = {}) {
+  const total = Math.max(0, Number(count) || 0);
+  if (!total) return 0;
+  return total * size + Math.max(0, total - 1) * gap;
+}
+
+export function buildBossHudSvg(model, width, height, config = {}) {
+  if (!model) return null;
+
+  const layout = getBossHudLayout(width, height, model, config);
+  const ratio = Math.max(0, Math.min(1, Number(model.health || 0) / Math.max(1, Number(model.maxHealth || 1))));
+  const { bar, info, stats, queue } = layout;
+  const filledW = Math.max(0, Math.round((bar.w - 4) * ratio));
+  const bossName = escapeSvgText(ellipsize(model.bossName, 40));
+
+  let barTicks = '';
+  for (let i = 1; i < 10; i += 1) {
+    const tickX = bar.x + 2 + Math.floor((bar.w - 4) * (i / 10));
+    barTicks += `<line x1="${tickX}" y1="${bar.y + bar.h - 8}" x2="${tickX}" y2="${bar.y + bar.h - 2}" stroke="rgba(0,0,0,0.8)" stroke-width="1.5" />`;
+  }
+
+  const statPills = [
+    buildBossStatPill(stats.x, stats.y, stats.w, model.defence, 'defence'),
+    buildBossStatPill(stats.x, stats.y + stats.h + stats.gap, stats.w, `${model.dodgePct}%`, 'dodge'),
+  ].join('');
+  const infoBgPoints = buildBevelPolygonPoints(info.bgX, info.bgY, info.bgW, info.bgH, 6);
+  const gothicFrameColor = '#1a1614';
+  const gothicTrimColor = '#8c7352';
+  const gothicHighlight = '#bfa780';
+  const queueHeaderTicks = model.roundLimit > 0
+    ? buildBossApTicks(
+      bar.x + 2,
+      bar.y + bar.h + 8,
+      model.roundLimit,
+      model.roundActionPoints,
+      {
+        size: 7,
+        gap: 2,
+        inactiveBase: '#1a1f1b',
+        inactiveHighlight: '#313a33',
+      },
+    )
+    : '';
+  const visibleQueue = Array.isArray(model.queue) ? model.queue.slice(0, queue.visibleRows) : [];
+  const queueOverflow = Math.max(0, (model.queue?.length || 0) - visibleQueue.length);
+  const queueRows = visibleQueue.length
+    ? visibleQueue.map((item, idx) => {
+      const rowY = queue.y + queue.headerH + idx * queue.rowH;
+      const rowW = Math.min(queue.w, getBossQueueRowWidth(item));
+      const rowX = queue.x + queue.w - rowW;
+      const rowH = 30;
+      const isCurrent = item.isCurrent;
+      const previewPlateWidth = getBossQueuePreviewPlateWidth(item.previewLabel);
+      const previewPlateX = rowX + rowW - previewPlateWidth - 6;
+      const previewPlateY = rowY + 3;
+      const previewPlateSvg = buildBossStatPill(
+        previewPlateX,
+        previewPlateY,
+        previewPlateWidth,
+        item.previewLabel || '—',
+        item.previewType === 'utility' ? 'neutral' : 'attack',
+        { heal: item.previewType === 'heal' },
+      );
+      const titleLeftX = rowX + 18;
+      const titleRightX = previewPlateX - 6;
+      const titleAvailableWidth = Math.max(32, titleRightX - titleLeftX);
+      const titleMaxChars = Math.max(8, Math.floor(titleAvailableWidth / (11 * 0.6)));
+      const title = escapeSvgText(ellipsize(item.name, titleMaxChars));
+      const activeTickSize = 7;
+      const activeTickGap = 2;
+      const activeTickWidth = getBossApTicksWidth(item.cost, { size: activeTickSize, gap: activeTickGap });
+      const activeTickX = rowX - 10 - activeTickWidth;
+      const activeTickY = rowY + 11;
+      const activeSweepX = activeTickX - 10;
+      const activeSweepW = rowX + rowW - activeSweepX;
+      const activeSweepPoints = buildBevelPolygonPoints(activeSweepX, rowY + 5, activeSweepW, rowH - 10, 8);
+      const activeSweepInnerPoints = buildInsetBevelPolygonPoints(activeSweepX, rowY + 5, activeSweepW, rowH - 10, 8, 1.5);
+      const apTicks = isCurrent
+        ? buildBossApTicks(activeTickX, activeTickY, item.cost, Math.min(model.actionPoints, item.cost), {
+          size: activeTickSize,
+          gap: activeTickGap,
+          activeBase: '#aa8800',
+          activeHighlight: '#ffce00',
+          inactiveBase: '#1a1f1b',
+          inactiveHighlight: '#313a33',
+        })
+        : '';
+      const rowFill = isCurrent ? 'rgba(13,19,19,0.94)' : 'rgba(10,14,11,0.78)';
+      const rowStroke = isCurrent ? 'rgba(255,255,255,0.45)' : 'rgba(30,43,36,0.92)';
+      const rowPoints = buildBevelPolygonPoints(rowX, rowY, rowW, rowH, 8);
+      const rowInnerPoints = buildInsetBevelPolygonPoints(rowX, rowY, rowW, rowH, 8, 1.5);
+
+      return `
+  ${isCurrent ? `<polygon points="${activeSweepPoints}" fill="rgba(255,206,0,0.3)" stroke="rgba(255,206,0,0.2)" stroke-width="1" />
+  <polygon points="${activeSweepInnerPoints}" fill="rgba(55,43,9,0.3)" />
+  ${apTicks}` : ''}
+  <polygon points="${rowPoints}" fill="${rowFill}" stroke="${rowStroke}" stroke-width="${isCurrent ? 1.4 : 1}" />
+  <polygon points="${rowInnerPoints}" fill="rgba(13,19,19,0.62)" />
+  <path d="M ${rowX + 8} ${rowY + 5} L ${rowX + rowW - 8} ${rowY + 5}" stroke="rgba(255,255,255,0.04)" stroke-width="1" />
+  <text x="${titleRightX}" y="${rowY + 18}" text-anchor="end" fill="#f4f6fb" font-family="Tahoma, sans-serif" font-size="11" font-weight="${isCurrent ? '700' : '600'}">${title}</text>
+  ${previewPlateSvg}`;
+    }).join('')
+    : `<text x="${queue.x + 14}" y="${queue.y + 42}" fill="rgba(255,255,255,0.66)" font-family="Tahoma, sans-serif" font-size="11">Нет способностей</text>`;
+
+  return createSvgTexture(`
+<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bossHpFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5C0000" />
+      <stop offset="50%" stop-color="#FF0000" />
+      <stop offset="100%" stop-color="#5C0000" />
+    </linearGradient>
+    <linearGradient id="bossBarGlass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.16" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="bossPanelFade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#111913" stop-opacity="0.97" />
+      <stop offset="100%" stop-color="#090d0a" stop-opacity="0.92" />
+    </linearGradient>
+  </defs>
+
+  <rect x="${bar.x}" y="${bar.y}" width="${bar.w}" height="${bar.h}" fill="#0a0808" stroke="#000000" stroke-width="2" />
+  ${filledW > 0 ? `
+  <rect x="${bar.x + 2}" y="${bar.y + 2}" width="${filledW}" height="${bar.h - 4}" fill="url(#bossHpFill)" />
+  <path d="M ${bar.x + 2} ${bar.y + 3} L ${bar.x + 2 + filledW} ${bar.y + 3}" stroke="rgba(255,120,120,0.3)" stroke-width="1.5" />` : ''}
+  ${barTicks}
+  <path d="M ${bar.x + 6} ${bar.y + 4} L ${bar.x + bar.w - 6} ${bar.y + 4}" stroke="url(#bossBarGlass)" stroke-width="3" />
+  <rect x="${bar.x + 1}" y="${bar.y + 1}" width="${bar.w - 2}" height="${bar.h - 2}" fill="none" stroke="${gothicFrameColor}" stroke-width="1.5" />
+  <rect x="${bar.x}" y="${bar.y}" width="${bar.w}" height="${bar.h}" fill="none" stroke="${gothicTrimColor}" stroke-width="1" />
+  <path d="M ${bar.x - 3} ${bar.y - 3} L ${bar.x + 5} ${bar.y} L ${bar.x} ${bar.y + 5} Z" fill="${gothicFrameColor}" stroke="${gothicTrimColor}" stroke-width="1"/>
+  <path d="M ${bar.x - 3} ${bar.y + bar.h + 3} L ${bar.x + 5} ${bar.y + bar.h} L ${bar.x} ${bar.y + bar.h - 5} Z" fill="${gothicFrameColor}" stroke="${gothicTrimColor}" stroke-width="1"/>
+  <path d="M ${bar.x + bar.w + 3} ${bar.y - 3} L ${bar.x + bar.w - 5} ${bar.y} L ${bar.x + bar.w} ${bar.y + 5} Z" fill="${gothicFrameColor}" stroke="${gothicTrimColor}" stroke-width="1"/>
+  <path d="M ${bar.x + bar.w + 3} ${bar.y + bar.h + 3} L ${bar.x + bar.w - 5} ${bar.y + bar.h} L ${bar.x + bar.w} ${bar.y + bar.h - 5} Z" fill="${gothicFrameColor}" stroke="${gothicTrimColor}" stroke-width="1"/>
+  <polygon points="${bar.x + bar.w / 2},${bar.y - 4} ${bar.x + bar.w / 2 + 6},${bar.y} ${bar.x + bar.w / 2},${bar.y + 4} ${bar.x + bar.w / 2 - 6},${bar.y}" fill="${gothicFrameColor}" stroke="${gothicTrimColor}" stroke-width="1"/>
+  <polygon points="${bar.x + bar.w / 2},${bar.y + bar.h + 4} ${bar.x + bar.w / 2 + 6},${bar.y + bar.h} ${bar.x + bar.w / 2},${bar.y + bar.h - 4} ${bar.x + bar.w / 2 - 6},${bar.y + bar.h}" fill="${gothicFrameColor}" stroke="${gothicTrimColor}" stroke-width="1"/>
+  <polyline points="${bar.x + bar.w / 2 - 5},${bar.y} ${bar.x + bar.w / 2},${bar.y - 3} ${bar.x + bar.w / 2 + 5},${bar.y}" fill="none" stroke="${gothicHighlight}" stroke-width="1" />
+  <polyline points="${bar.x + bar.w / 2 - 5},${bar.y + bar.h} ${bar.x + bar.w / 2},${bar.y + bar.h + 3} ${bar.x + bar.w / 2 + 5},${bar.y + bar.h}" fill="none" stroke="${gothicHighlight}" stroke-width="1" />
+
+  <polygon points="${infoBgPoints}" fill="rgba(10, 14, 11, 0.6)" stroke="rgba(255,255,255,0.04)" stroke-width="1" />
+  <polygon points="${buildInsetBevelPolygonPoints(info.bgX, info.bgY, info.bgW, info.bgH, 6, 1.5)}" fill="rgba(0, 0, 0, 0.3)" />
+  <text x="${info.nameX + 1}" y="${info.y + 1}" text-anchor="middle" fill="#000" font-family="Tahoma, sans-serif" font-size="13" font-weight="800">${bossName}</text>
+  <text x="${info.nameX}" y="${info.y}" text-anchor="middle" fill="#e4e8f0" font-family="Tahoma, sans-serif" font-size="13" font-weight="800">${bossName}</text>
+
+  ${statPills}
+  ${queueHeaderTicks}
+  ${queueRows}
+  ${queueOverflow ? `<text x="${queue.x + queue.w - 12}" y="${queue.y + queue.h - 6}" text-anchor="end" fill="rgba(255,255,255,0.42)" font-family="Tahoma, sans-serif" font-size="10" font-weight="700">. . .</text>` : ''}
+</svg>`);
+}
+
 export function buildPlatformSvgs(char, effectiveStats, activeChar) {
   const platformCfg = {
     svgW: 100,

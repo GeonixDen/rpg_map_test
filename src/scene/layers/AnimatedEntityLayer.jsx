@@ -31,6 +31,7 @@ function AnimatedEntityLayer({
   mapType,
   z,
   renderOrder,
+  worldPositionRef,
   onComplete,
 }) {
   const meshRef = useRef(null);
@@ -92,6 +93,9 @@ function AnimatedEntityLayer({
 
     const world = tileToWorld(point.x, point.y, dimensions);
     mesh.position.set(world.x, world.y, z);
+    if (worldPositionRef) {
+      worldPositionRef.current = { worldX: world.x, worldY: world.y };
+    }
 
     if (point.done && animation?.id && completedIdRef.current !== animation.id) {
       completedIdRef.current = animation.id;

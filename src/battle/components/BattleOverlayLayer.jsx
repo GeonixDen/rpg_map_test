@@ -296,6 +296,7 @@ export const BattleOverlay = memo(function BattleOverlay({ scene, items, countsU
           height={item.height}
           sceneWidth={scene.width}
           sceneHeight={scene.height}
+          centered={Boolean(item.centered)}
           className={`battle-test__overlay-image battle-test__overlay-image--${item.kind || 'svg'}${item.tone ? ` battle-test__overlay-image--${item.tone}` : ''}`}
           style={item.style}
         />

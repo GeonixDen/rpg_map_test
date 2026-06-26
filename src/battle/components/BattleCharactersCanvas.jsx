@@ -275,10 +275,18 @@ function CharacterSpriteComponent({ actor, scene }) {
   ), [actor.charId, actor.id]);
   const image = texture.image;
   const aspect = image?.width && image?.height ? image.width / image.height : 1;
-  const width = actor.drawHeight * aspect;
+  const fitBoxWidth = Number(actor.drawWidth) || null;
+  const fitBoxHeight = actor.drawHeight;
+  const fitBoxAspect = fitBoxWidth ? fitBoxWidth / Math.max(1, fitBoxHeight) : null;
+  const renderWidth = fitBoxWidth
+    ? (aspect > fitBoxAspect ? fitBoxWidth : fitBoxHeight * aspect)
+    : fitBoxHeight * aspect;
+  const renderHeight = fitBoxWidth
+    ? (aspect > fitBoxAspect ? fitBoxWidth / aspect : fitBoxHeight)
+    : fitBoxHeight;
   const baseX = actor.centerX - scene.width / 2;
   const baseY = scene.height / 2 - actor.centerY;
-  const baseBottomY = baseY - actor.drawHeight / 2;
+  const baseBottomY = baseY - renderHeight / 2;
 
   const [attackSpring, attackApi] = useSpring(() => ({
     offsetX: 0,
@@ -401,8 +409,8 @@ function CharacterSpriteComponent({ actor, scene }) {
   const rotation = to([attackSpring.rotation, hitSpring.rotation, lifeSpring.rotation], (attackRotation, hitRotation, lifeRotation) => (
     attackRotation + hitRotation + lifeRotation
   ));
-  const scaleX = lifeSpring.scale.to((value) => width * value);
-  const scaleY = lifeSpring.scale.to((value) => actor.drawHeight * value);
+  const scaleX = lifeSpring.scale.to((value) => renderWidth * value);
+  const scaleY = lifeSpring.scale.to((value) => renderHeight * value);
   const healStretchY = healSpring.stretchY;
   const highlightConfig = useMemo(
     () => getHighlightConfig(actor.highlightState),
@@ -545,6 +553,7 @@ const CharacterSprite = memo(CharacterSpriteComponent, (prevProps, nextProps) =>
     && prev.spriteUrl === next.spriteUrl
     && prev.centerX === next.centerX
     && prev.centerY === next.centerY
+    && prev.drawWidth === next.drawWidth
     && prev.drawHeight === next.drawHeight
     && prev.row === next.row
     && prev.shouldFlip === next.shouldFlip
