@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Map as MapIcon, Route, SlidersHorizontal } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Map as MapIcon, Route, SlidersHorizontal, UsersRound } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import MapScene from '../scene/MapScene.jsx';
 import { useMapDemoStore } from '../store/mapDemoStore.js';
@@ -8,6 +8,7 @@ import { formatNumber } from '../utils/format.js';
 import BattleModal from '../battle/BattleModal.jsx';
 import DialogModal from './DialogModal.jsx';
 import MapKeyboardPanel from './MapKeyboardPanel.jsx';
+import SquadModal from './SquadModal.jsx';
 import ToastStack from './ToastStack.jsx';
 
 const EMPTY_ARRAY = Object.freeze([]);
@@ -95,6 +96,7 @@ function DemoPanels({
 export default function App() {
   const [showDemoPanels, setShowDemoPanels] = useState(false);
   const [cameraMode, setCameraMode] = useState('follow');
+  const [squadModalOpen, setSquadModalOpen] = useState(false);
   const {
     loading,
     maps,
@@ -160,6 +162,7 @@ export default function App() {
   const battleUiType = String(live.battleState?.uiState?.type || currentUiType).toLowerCase();
   const battleModalVisible = battleUiType === 'battle' || battleUiType === 'battleresult';
   const serverPlayer = liveOnSelectedMap?.player || null;
+  const squadState = liveOnSelectedMap?.squad || null;
   const activeMovementAnimation = movementAnimation?.mapId === selected?.id ? movementAnimation : null;
   const liveLayers = liveOnSelectedMap?.layers;
   const actionsByTile = liveOnSelectedMap?.actionsByTile || EMPTY_OBJECT;
@@ -198,8 +201,34 @@ export default function App() {
       ? mapKeyboardRows
       : EMPTY_ARRAY;
   const showMapViewToggle = !!liveOnSelectedMap && !dialogModal && !battleModalVisible;
+  const showSquadToggle = !!squadState && !dialogModal && !battleModalVisible;
   const isFullMap = cameraMode === 'full';
   const mapInteractionEnabled = cameraMode === 'follow' && !dialogModal && !battleModalVisible;
+  const actionBusy = live.actionStatus === 'sending';
+  const handleUiAction = useCallback(
+    (action) => {
+      if (!action || action === 'noop') return null;
+      return sendServerAction(action);
+    },
+    [sendServerAction],
+  );
+  const handleMapKeyboardAction = useCallback(
+    (action) => {
+      if (action === 'showSq') {
+        setSquadModalOpen(true);
+        return null;
+      }
+
+      return handleUiAction(action);
+    },
+    [handleUiAction],
+  );
+
+  useEffect(() => {
+    if (dialogModal || battleModalVisible || !squadState) {
+      setSquadModalOpen(false);
+    }
+  }, [battleModalVisible, dialogModal, squadState]);
   const liveLabel =
     live.status === 'ready'
       ? `${live.transport || 'live'} ${otherPlayers.length}/${actors.length}${
@@ -238,6 +267,18 @@ export default function App() {
         </button>
       ) : null}
 
+      {showSquadToggle ? (
+        <button
+          className={`squad-toggle ${squadModalOpen ? 'is-active' : ''}`}
+          type="button"
+          onClick={() => setSquadModalOpen(true)}
+          title="Отряд"
+        >
+          <UsersRound size={15} />
+          <span>Отряд</span>
+        </button>
+      ) : null}
+
       {showDemoPanels ? (
         <DemoPanels
           selected={selected}
@@ -270,20 +311,27 @@ export default function App() {
       />
       <DialogModal
         dialog={battleModalVisible ? null : dialogModal}
-        busy={live.actionStatus === 'sending'}
-        onAction={sendServerAction}
+        busy={actionBusy}
+        onAction={handleUiAction}
       />
       <BattleModal
         battleState={live.battleState}
         presentation={battlePresentation}
         uiType={battleUiType}
-        busy={live.actionStatus === 'sending'}
-        onAction={sendServerAction}
+        busy={actionBusy}
+        onAction={handleUiAction}
+      />
+      <SquadModal
+        squad={squadState}
+        visible={squadModalOpen && showSquadToggle}
+        busy={actionBusy}
+        onClose={() => setSquadModalOpen(false)}
+        onAction={handleUiAction}
       />
       <MapKeyboardPanel
         rows={visibleMapKeyboardRows}
         busy={live.actionStatus === 'sending' || !!activeMovementAnimation}
-        onAction={sendServerAction}
+        onAction={handleMapKeyboardAction}
       />
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </main>
