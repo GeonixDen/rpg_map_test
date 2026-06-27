@@ -22,12 +22,6 @@ function getMaskLabel(mask) {
   return mask.tierRoman || mask.tier || '?';
 }
 
-function getUpgradeLabel(action) {
-  if (action.type === 'echo') return 'Эхо';
-  if (action.kind === 'tier') return `Тир ${action.label?.replace(/^Тир\s+/i, '') || ''}`.trim();
-  return '+Уровень';
-}
-
 function getRowLabel(row) {
   return `Ряд ${Number(row) + 1}`;
 }
@@ -37,17 +31,33 @@ function getColLabel(col) {
 }
 
 function MaskPill({ mask, busy, onAction }) {
+  const canUse = !!mask?.canUse && !!mask?.action;
+
   return (
     <button
-      className={`squad-mask ${mask.canUse ? 'is-ready' : ''} ${mask.type === 'echo' ? 'is-echo' : ''}`}
+      className={`squad-mask ${canUse ? 'is-ready' : ''} ${mask.type === 'echo' ? 'is-echo' : ''}`}
       type="button"
       title={mask.name}
-      disabled={busy || !mask.canUse || !mask.action}
-      onClick={() => onAction(mask.action)}
+      disabled={busy || !canUse}
+      onClick={(event) => {
+        event.stopPropagation();
+        onAction(mask.action);
+      }}
     >
       <span>{getMaskLabel(mask)}</span>
       <strong>x{mask.quantity || 0}</strong>
     </button>
+  );
+}
+
+function CharacterMasks({ masks, busy, onAction }) {
+  return (
+    <div className="squad-card__masks">
+      {masks?.normal?.map((mask) => (
+        <MaskPill key={mask.id} mask={mask} busy={busy} onAction={onAction} />
+      ))}
+      {masks?.echo ? <MaskPill mask={masks.echo} busy={busy} onAction={onAction} /> : null}
+    </div>
   );
 }
 
@@ -147,40 +157,64 @@ function SquadBoard({ squad, selectedSlot, busy, onSelectSlot, onAction }) {
                 const char = slot.charId ? charsById.get(slot.charId) : null;
                 const selected = selectedSlot?.row === slot.row && selectedSlot?.col === slot.col;
                 const hpPct = getHpPercent(char);
+                const reserveAction = char?.actions?.reserve || null;
+                const selectSlot = () => onSelectSlot(slot);
+                const handleSlotKeyDown = (event) => {
+                  if (event.key !== 'Enter' && event.key !== ' ') return;
+                  event.preventDefault();
+                  selectSlot();
+                };
 
                 return (
-                  <button
+                  <article
                     key={slot.id}
-                    className={`squad-slot ${char ? 'has-char' : 'is-empty'} ${selected ? 'is-selected' : ''}`}
-                    type="button"
+                    className={`squad-card squad-slot ${char ? `squad-card--${char.rarity || 'standard'} has-char` : 'is-empty'} ${selected ? 'is-selected' : ''}`}
                     aria-pressed={selected}
-                    onClick={() => onSelectSlot(slot)}
+                    tabIndex={0}
+                    onClick={selectSlot}
+                    onKeyDown={handleSlotKeyDown}
                     title={char?.name || 'Пустая позиция'}
                   >
                     <span className="squad-slot__position">{getColLabel(slot.col)}</span>
 
                     {char ? (
                       <>
-                        <span className="squad-slot__portrait">
+                        <div className="squad-card__portrait">
                           {char.spriteUrl ? <img src={char.spriteUrl} alt="" draggable="false" /> : null}
-                          <strong>{char.tierRoman}</strong>
-                        </span>
+                          <div className="squad-card__tier">{char.tierRoman}</div>
+                        </div>
 
-                        <span className="squad-slot__info">
-                          <span className="squad-slot__name">{char.name}</span>
-                          <span className="squad-slot__meta">
-                            Уровень {char.level}{char.sharpness ? ` +${char.sharpness}` : ''}
-                          </span>
-                          <span className="squad-slot__hp" title={formatHp(char)}>
+                        <div className="squad-card__body">
+                          <div className="squad-card__top">
+                            <h3>{char.name}</h3>
+                            <span>⭐ {char.level}{char.sharpness ? ` +${char.sharpness}` : ''}</span>
+                          </div>
+                          <div className="squad-card__hp" title={formatHp(char)}>
                             <i style={{ width: `${hpPct}%` }} />
                             <strong>{formatHp(char)}</strong>
-                          </span>
-                          <span className="squad-slot__mini-stats">
+                          </div>
+                          <div className="squad-card__stats">
                             <span><Swords size={12} />{formatAttack(char)}</span>
                             <span><Shield size={12} />{char.defence}</span>
                             <span>{char.dodgePercent}%</span>
-                          </span>
-                        </span>
+                          </div>
+                          <CharacterMasks masks={char.masks} busy={busy} onAction={onAction} />
+                          {reserveAction ? (
+                            <div className="squad-card__actions">
+                              <button
+                                className="squad-action"
+                                type="button"
+                                disabled={busy}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  onAction(reserveAction);
+                                }}
+                              >
+                                Резерв
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
                       </>
                     ) : (
                       <span className="squad-slot__empty">
@@ -188,7 +222,7 @@ function SquadBoard({ squad, selectedSlot, busy, onSelectSlot, onAction }) {
                         <span>Пусто</span>
                       </span>
                     )}
-                  </button>
+                  </article>
                 );
               })}
             </div>
@@ -214,6 +248,8 @@ function SquadCard({ char, selectedSlot, busy, onAction }) {
   const placeAction = canPlace
     ? `mvChar_${char.id}_${selectedSlot.row}_${selectedSlot.col}_${selectedSlot.charId ? 1 : 0}`
     : null;
+  const reserveAction = char.actions?.reserve || null;
+  const hasActions = !!placeAction || !!reserveAction;
 
   return (
     <article className={`squad-card squad-card--${char.rarity || 'standard'}`}>
@@ -239,59 +275,54 @@ function SquadCard({ char, selectedSlot, busy, onAction }) {
           <span>{char.dodgePercent}%</span>
         </div>
 
-        <div className="squad-card__masks">
-          {char.masks?.normal?.map((mask) => (
-            <MaskPill key={mask.id} mask={mask} busy={busy} onAction={onAction} />
-          ))}
-          {char.masks?.echo ? <MaskPill mask={char.masks.echo} busy={busy} onAction={onAction} /> : null}
-        </div>
+        <CharacterMasks masks={char.masks} busy={busy} onAction={onAction} />
 
-        <div className="squad-card__actions">
-          {char.upgradeActions?.map((action) => (
-            <button
-              key={action.id}
-              className="squad-action squad-action--primary"
-              type="button"
-              disabled={busy}
-              onClick={() => onAction(action.action)}
-            >
-              {getUpgradeLabel(action)}
-            </button>
-          ))}
-          {placeAction ? (
-            <button
-              className="squad-action"
-              type="button"
-              disabled={busy}
-              onClick={() => onAction(placeAction)}
-            >
-              Поставить
-            </button>
-          ) : null}
-          {char.actions?.reserve ? (
-            <button
-              className="squad-action"
-              type="button"
-              disabled={busy}
-              onClick={() => onAction(char.actions.reserve)}
-            >
-              Резерв
-            </button>
-          ) : null}
-        </div>
+        {hasActions ? (
+          <div className="squad-card__actions">
+            {placeAction ? (
+              <button
+                className="squad-action"
+                type="button"
+                disabled={busy}
+                onClick={() => onAction(placeAction)}
+              >
+                Поставить
+              </button>
+            ) : null}
+            {reserveAction ? (
+              <button
+                className="squad-action"
+                type="button"
+                disabled={busy}
+                onClick={() => onAction(reserveAction)}
+              >
+                Резерв
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </article>
   );
 }
 
 function RecruitCard({ recruit, busy, onAction }) {
+  const masks = (recruit.masks || []).filter((mask) => Number(mask.quantity) > 0);
+  if (!masks.length) return null;
+
   return (
-    <article className={`squad-recruit squad-recruit--${recruit.rarity || 'standard'}`}>
-      {recruit.spriteUrl ? <img src={recruit.spriteUrl} alt="" /> : null}
-      <div>
-        <h3>{recruit.name}</h3>
+    <article className={`squad-card squad-card--recruit squad-card--${recruit.rarity || 'standard'}`}>
+      <div className="squad-card__portrait">
+        {recruit.spriteUrl ? <img src={recruit.spriteUrl} alt="" /> : null}
+      </div>
+
+      <div className="squad-card__body squad-card__body--recruit">
+        <div className="squad-card__top">
+          <h3>{recruit.name}</h3>
+        </div>
+
         <div className="squad-card__masks">
-          {recruit.masks?.map((mask) => (
+          {masks.map((mask) => (
             <MaskPill key={mask.id} mask={mask} busy={busy} onAction={onAction} />
           ))}
         </div>
@@ -370,23 +401,16 @@ function SquadModal({ squad, visible = false, busy = false, onClose, onAction })
                 onAction={onAction}
               />
             ))}
-          </div>
 
-          {squad.recruitable?.length ? (
-            <div className="squad-recruits">
-              <h3>Новые маски</h3>
-              <div className="squad-recruits__grid">
-                {squad.recruitable.map((recruit) => (
-                  <RecruitCard
-                    key={recruit.templateId}
-                    recruit={recruit}
-                    busy={busy}
-                    onAction={onAction}
-                  />
-                ))}
-              </div>
-            </div>
-          ) : null}
+            {(squad.recruitable || []).map((recruit) => (
+              <RecruitCard
+                key={`mask:${recruit.templateId}`}
+                recruit={recruit}
+                busy={busy}
+                onAction={onAction}
+              />
+            ))}
+          </div>
         </div>
       </section>
     </div>
