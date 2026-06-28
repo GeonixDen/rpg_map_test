@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Map as MapIcon, Route, SlidersHorizontal, UsersRound } from 'lucide-react';
+import { BookOpen, Map as MapIcon, Route, SlidersHorizontal, UsersRound } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import MapScene from '../scene/MapScene.jsx';
 import { useMapDemoStore } from '../store/mapDemoStore.js';
@@ -7,6 +7,7 @@ import { buildChunkModel, tileToWorld } from '../utils/mapModel.js';
 import { formatNumber } from '../utils/format.js';
 import BattleModal from '../battle/BattleModal.jsx';
 import DialogModal from './DialogModal.jsx';
+import JournalModal from './JournalModal.jsx';
 import MapKeyboardPanel from './MapKeyboardPanel.jsx';
 import SquadModal from './SquadModal.jsx';
 import ToastStack from './ToastStack.jsx';
@@ -97,6 +98,7 @@ export default function App() {
   const [showDemoPanels, setShowDemoPanels] = useState(false);
   const [cameraMode, setCameraMode] = useState('follow');
   const [squadModalOpen, setSquadModalOpen] = useState(false);
+  const [journalModalOpen, setJournalModalOpen] = useState(false);
   const {
     loading,
     maps,
@@ -163,6 +165,8 @@ export default function App() {
   const battleModalVisible = battleUiType === 'battle' || battleUiType === 'battleresult';
   const serverPlayer = liveOnSelectedMap?.player || null;
   const squadState = liveOnSelectedMap?.squad || null;
+  const journalState = liveOnSelectedMap?.journal || null;
+  const questGuide = journalState?.guide || null;
   const activeMovementAnimation = movementAnimation?.mapId === selected?.id ? movementAnimation : null;
   const liveLayers = liveOnSelectedMap?.layers;
   const actionsByTile = liveOnSelectedMap?.actionsByTile || EMPTY_OBJECT;
@@ -202,6 +206,7 @@ export default function App() {
       : EMPTY_ARRAY;
   const showMapViewToggle = !!liveOnSelectedMap && !dialogModal && !battleModalVisible;
   const showSquadToggle = !!squadState && !dialogModal && !battleModalVisible;
+  const showJournalToggle = !!journalState && !dialogModal && !battleModalVisible;
   const isFullMap = cameraMode === 'full';
   const mapInteractionEnabled = cameraMode === 'follow' && !dialogModal && !battleModalVisible;
   const actionBusy = live.actionStatus === 'sending';
@@ -216,6 +221,13 @@ export default function App() {
     (action) => {
       if (action === 'showSq') {
         setSquadModalOpen(true);
+        setJournalModalOpen(false);
+        return null;
+      }
+
+      if (action === 'journal' || action === 'journalHints') {
+        setJournalModalOpen(true);
+        setSquadModalOpen(false);
         return null;
       }
 
@@ -229,6 +241,12 @@ export default function App() {
       setSquadModalOpen(false);
     }
   }, [battleModalVisible, dialogModal, squadState]);
+
+  useEffect(() => {
+    if (dialogModal || battleModalVisible || !journalState) {
+      setJournalModalOpen(false);
+    }
+  }, [battleModalVisible, dialogModal, journalState]);
   const liveLabel =
     live.status === 'ready'
       ? `${live.transport || 'live'} ${otherPlayers.length}/${actors.length}${
@@ -271,11 +289,29 @@ export default function App() {
         <button
           className={`squad-toggle ${squadModalOpen ? 'is-active' : ''}`}
           type="button"
-          onClick={() => setSquadModalOpen(true)}
+          onClick={() => {
+            setSquadModalOpen(true);
+            setJournalModalOpen(false);
+          }}
           title="Отряд"
         >
           <UsersRound size={15} />
           <span>Отряд</span>
+        </button>
+      ) : null}
+
+      {showJournalToggle ? (
+        <button
+          className={`journal-toggle ${journalModalOpen ? 'is-active' : ''}`}
+          type="button"
+          onClick={() => {
+            setJournalModalOpen(true);
+            setSquadModalOpen(false);
+          }}
+          title="Журнал"
+        >
+          <BookOpen size={15} />
+          <span>Журнал</span>
         </button>
       ) : null}
 
@@ -303,6 +339,7 @@ export default function App() {
         actionsByTile={actionsByTile}
         movementAnimation={activeMovementAnimation}
         playerEntity={serverPlayer}
+        questGuide={questGuide}
         onMovementComplete={clearMovementAnimation}
         onTileClick={handleTileClick}
         otherPlayers={otherPlayers}
@@ -326,6 +363,13 @@ export default function App() {
         visible={squadModalOpen && showSquadToggle}
         busy={actionBusy}
         onClose={() => setSquadModalOpen(false)}
+        onAction={handleUiAction}
+      />
+      <JournalModal
+        journal={journalState}
+        visible={journalModalOpen && showJournalToggle}
+        busy={actionBusy}
+        onClose={() => setJournalModalOpen(false)}
         onAction={handleUiAction}
       />
       <MapKeyboardPanel

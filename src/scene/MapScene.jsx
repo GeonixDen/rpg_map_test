@@ -7,6 +7,7 @@ import CameraController from './CameraController.jsx';
 import InteractionLayer from './InteractionLayer.jsx';
 import AnimatedEntityLayer from './layers/AnimatedEntityLayer.jsx';
 import DynamicEntitiesLayer from './layers/DynamicEntitiesLayer.jsx';
+import QuestGuideLayer from './layers/QuestGuideLayer.jsx';
 import TileLayer from './TileLayer.jsx';
 
 function SceneFallback() {
@@ -24,6 +25,7 @@ function MapScene({
   actionsByTile,
   movementAnimation,
   playerEntity,
+  questGuide,
   onMovementComplete,
   onTileClick,
   onRenderStats,
@@ -87,6 +89,11 @@ function MapScene({
           renderOrder={APP_CONFIG.dynamicEntities.actors.renderOrder + 1}
           worldPositionRef={playerWorldRef}
           onComplete={onMovementComplete}
+        />
+        <QuestGuideLayer
+          guide={questGuide}
+          dimensions={model.dimensions}
+          followWorldRef={playerWorldRef}
         />
         <InteractionLayer
           map={map}
