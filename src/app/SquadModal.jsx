@@ -8,10 +8,61 @@ function formatHp(char) {
   return `${Math.round(char?.health || 0)}/${Math.round(char?.maxHealth || 0)}`;
 }
 
-function formatAttack(char) {
+function getAttackDescription(char) {
   const min = Number(char?.attack?.min) || 0;
   const max = Number(char?.attack?.max) || min;
-  return min === max ? `${min}` : `${min}-${max}`;
+  const isHeal = min < 0 || max < 0;
+
+  const valMin = Math.min(Math.abs(min), Math.abs(max));
+  const valMax = Math.max(Math.abs(min), Math.abs(max));
+  const valText = valMin === valMax ? `${valMin}` : `${valMin}-${valMax}`;
+
+  let actionPrefix = isHeal ? '💚 ' : '⚔️ ';
+
+  // Calculate multiple hits
+  const damageAoe = char?.attack?.damageAoe;
+  let targetHits = 1;
+  let splashIcon = '';
+
+  if (Array.isArray(damageAoe) && damageAoe.length > 0) {
+    targetHits = damageAoe.filter(pt => pt && pt[0] === 0 && pt[1] === 0).length;
+    if (targetHits === 0) targetHits = 1;
+
+    // Check splash targets
+    const uniqueTiles = [];
+    const seen = new Set();
+    damageAoe.forEach(pt => {
+      if (!pt) return;
+      const key = `${pt[0]}:${pt[1]}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueTiles.push(pt);
+      }
+    });
+
+    const otherTiles = uniqueTiles.filter(pt => pt[0] !== 0 || pt[1] !== 0);
+    if (otherTiles.length > 0) {
+      if (uniqueTiles.length >= 5) {
+        splashIcon = ' 💥 AOE'; // AoE / Cross
+      } else if (otherTiles.every(pt => pt[1] === 0)) {
+        splashIcon = ' ↕️'; // Row (horizontal)
+      } else if (otherTiles.every(pt => pt[0] === 0)) {
+        splashIcon = ' ↔️'; // Column (vertical)
+      } else {
+        splashIcon = ` 🎯${uniqueTiles.length}`; // Multi-targets
+      }
+    }
+  }
+
+  // Calculate chains
+  const chainJumps = char?.attack?.chainJumps;
+  let chainIcon = '';
+  if (chainJumps && Number(chainJumps) > 0) {
+    chainIcon = ` 🔗 ${chainJumps}`;
+  }
+
+  const hitMultiplier = targetHits > 1 ? ` x${targetHits}` : '';
+  return `${actionPrefix}${valText}${hitMultiplier}${splashIcon}${chainIcon}`;
 }
 
 function getMaskLabel(mask) {
@@ -83,7 +134,7 @@ function MaskUpgradeArrow() {
   return <span className="squad-card__mask-upgrade" aria-hidden="true" />;
 }
 
-function CharacterPortrait({ char, busy, onAction }) {
+function CharacterPortrait({ char, busy, onAction, children }) {
   const maskUpgrade = getAutoNormalMask(char);
   const canUpgrade = !!maskUpgrade?.action;
   const content = (
@@ -91,6 +142,7 @@ function CharacterPortrait({ char, busy, onAction }) {
       {char?.spriteUrl ? <img src={char.spriteUrl} alt="" draggable="false" /> : null}
       {canUpgrade ? <MaskUpgradeArrow /> : null}
       <div className="squad-card__tier">{char?.tierRoman}</div>
+      {children}
     </>
   );
 
@@ -229,27 +281,11 @@ function SquadBoard({ squad, selectedSlot, busy, onSelectSlot, onAction }) {
                     onKeyDown={handleSlotKeyDown}
                     title={char?.name || 'Пустая позиция'}
                   >
-                    <span className="squad-slot__position">{getColLabel(slot.col)}</span>
+                    {/*<span className="squad-slot__position">{getColLabel(slot.col)}</span>*/}
 
                     {char ? (
                       <>
-                        <CharacterPortrait char={char} busy={busy} onAction={onAction} />
-
-                        <div className="squad-card__body">
-                          <div className="squad-card__top">
-                            <h3>{char.name}</h3>
-                            <span>⭐ {char.level}{char.sharpness ? ` +${char.sharpness}` : ''}</span>
-                          </div>
-                          <div className={`squad-card__hp squad-card__hp--${hpTone}`} title={formatHp(char)}>
-                            <i style={{ width: `${hpPct}%` }} />
-                            <strong>{formatHp(char)}</strong>
-                          </div>
-                          <div className="squad-card__stats">
-                            <span><Swords size={12} />{formatAttack(char)}</span>
-                            <span><Shield size={12} />{char.defence}</span>
-                            <span>{char.dodgePercent}%</span>
-                          </div>
-                          <CharacterMasks masks={char.masks} busy={busy} onAction={onAction} />
+                        <CharacterPortrait char={char} busy={busy} onAction={onAction}>
                           {reserveAction ? (
                             <div className="squad-card__actions">
                               <button
@@ -265,6 +301,25 @@ function SquadBoard({ squad, selectedSlot, busy, onSelectSlot, onAction }) {
                               </button>
                             </div>
                           ) : null}
+                        </CharacterPortrait>
+
+                        <div className="squad-card__body">
+                          <div className="squad-card__top">
+                            <h3>{char.name}</h3>
+                            <span>⭐ {char.level}{char.sharpness ? ` +${char.sharpness}` : ''}</span>
+                          </div>
+                          <div className={`squad-card__hp squad-card__hp--${hpTone}`} title={formatHp(char)}>
+                            <i style={{ width: `${hpPct}%` }} />
+                            <strong>{formatHp(char)}</strong>
+                          </div>
+                          <div className="squad-card__attack-line" title={getAttackDescription(char)}>
+                            {getAttackDescription(char)}
+                          </div>
+                          <div className="squad-card__stats">
+                            <span>🛡️ {char.defence}</span>
+                            <span>💨 {char.dodgePercent}%</span>
+                          </div>
+                          <CharacterMasks masks={char.masks} busy={busy} onAction={onAction} />
                         </div>
                       </>
                     ) : (
@@ -305,27 +360,7 @@ function SquadCard({ char, selectedSlot, busy, onAction }) {
 
   return (
     <article className={`squad-card squad-card--${char.rarity || 'standard'}`}>
-      <CharacterPortrait char={char} busy={busy} onAction={onAction} />
-
-      <div className="squad-card__body">
-        <div className="squad-card__top">
-          <h3>{char.name}</h3>
-          <span>⭐ {char.level}{char.sharpness ? ` +${char.sharpness}` : ''}</span>
-        </div>
-
-        <div className={`squad-card__hp squad-card__hp--${hpTone}`} title={formatHp(char)}>
-          <i style={{ width: `${hpPct}%` }} />
-          <strong>{formatHp(char)}</strong>
-        </div>
-
-        <div className="squad-card__stats">
-          <span><Swords size={13} />{formatAttack(char)}</span>
-          <span><Shield size={13} />{char.defence}</span>
-          <span>{char.dodgePercent}%</span>
-        </div>
-
-        <CharacterMasks masks={char.masks} busy={busy} onAction={onAction} />
-
+      <CharacterPortrait char={char} busy={busy} onAction={onAction}>
         {hasActions ? (
           <div className="squad-card__actions">
             {placeAction ? (
@@ -350,6 +385,28 @@ function SquadCard({ char, selectedSlot, busy, onAction }) {
             ) : null}
           </div>
         ) : null}
+      </CharacterPortrait>
+
+      <div className="squad-card__body">
+        <div className="squad-card__top">
+          <h3>{char.name}</h3>
+          <span>⭐ {char.level}{char.sharpness ? ` +${char.sharpness}` : ''}</span>
+        </div>
+
+        <div className={`squad-card__hp squad-card__hp--${hpTone}`} title={formatHp(char)}>
+          <i style={{ width: `${hpPct}%` }} />
+          <strong>{formatHp(char)}</strong>
+        </div>
+
+        <div className="squad-card__attack-line" title={getAttackDescription(char)}>
+          {getAttackDescription(char)}
+        </div>
+        <div className="squad-card__stats">
+          <span>🛡️ {char.defence}</span>
+          <span>💨 {char.dodgePercent}%</span>
+        </div>
+
+        <CharacterMasks masks={char.masks} busy={busy} onAction={onAction} />
       </div>
     </article>
   );
@@ -380,7 +437,7 @@ function RecruitCard({ recruit, busy, onAction }) {
   );
 }
 
-function SquadModal({ squad, visible = false, busy = false, onClose, onAction }) {
+function SquadModal({ squad, visible = false, busy = false, onClose, onAction, defaultSelectedSlot = null }) {
   const [selectedSlot, setSelectedSlot] = useState(null);
   const fragments = squad?.masks?.fragments ?? squad?.currencies?.fragments ?? 0;
   const reserveChars = useMemo(() => {
@@ -389,8 +446,24 @@ function SquadModal({ squad, visible = false, busy = false, onClose, onAction })
   }, [squad]);
 
   useEffect(() => {
-    if (!visible) setSelectedSlot(null);
-  }, [visible]);
+    if (visible) {
+      let matchedSlot = null;
+      if (defaultSelectedSlot && squad?.board) {
+        for (const row of squad.board) {
+          const found = row.cols?.find(
+            (c) => c.row === defaultSelectedSlot.row && c.col === defaultSelectedSlot.col
+          );
+          if (found) {
+            matchedSlot = found;
+            break;
+          }
+        }
+      }
+      setSelectedSlot(matchedSlot || defaultSelectedSlot);
+    } else {
+      setSelectedSlot(null);
+    }
+  }, [visible, defaultSelectedSlot, squad]);
 
   if (!visible || !squad?.ok) return null;
 

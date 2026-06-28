@@ -162,50 +162,26 @@ function pushUnmaskIndicatorEffect({
   });
 }
 
-function buildLifeUiStyle(animation = {}, { detail = false } = {}) {
+function buildLifeUiStyle(animation = {}, _opts = {}) {
   const removingDead = Boolean(animation.removingDead);
-  const dead = Boolean(animation.dead);
-  const fadeMs = numberOr(LIFE_ANIMATION.removeDeadFadeMs, 420);
-  const settleMs = numberOr(LIFE_ANIMATION.uiSettleMs, 260);
-  const duration = removingDead ? fadeMs : settleMs;
-  const transition = [
-    `opacity ${duration}ms ease`,
-    `transform ${duration}ms cubic-bezier(0.22, 1, 0.36, 1)`,
-    `filter ${duration}ms ease`,
-  ].join(', ');
+  const fadeMs = numberOr(LIFE_ANIMATION.removeDeadFadeMs, 320);
+  const transition = `opacity ${fadeMs}ms ease`;
 
   if (removingDead) {
     return {
-      opacity: numberOr(LIFE_ANIMATION.uiFadeOpacity, 0),
-      transform: `translate3d(0, ${numberOr(LIFE_ANIMATION.uiFadeDropY, 8)}px, 0) scale(${numberOr(LIFE_ANIMATION.uiFadeScale, 0.86)})`,
-      filter: `blur(${numberOr(LIFE_ANIMATION.uiFadeBlur, 1.2)}px) saturate(0.45) brightness(0.65)`,
-      transformOrigin: '50% 65%',
+      opacity: 0,
       transition,
-      willChange: 'opacity, transform, filter',
-    };
-  }
-
-  if (dead) {
-    return {
-      opacity: detail
-        ? numberOr(LIFE_ANIMATION.uiDetailDeadOpacity, 0.16)
-        : numberOr(LIFE_ANIMATION.uiDeadOpacity, 0.38),
-      transform: `translate3d(0, ${numberOr(LIFE_ANIMATION.uiDeadDropY, 2)}px, 0) scale(${numberOr(LIFE_ANIMATION.uiDeadScale, 0.96)})`,
-      filter: 'saturate(0.62) brightness(0.82)',
-      transformOrigin: '50% 65%',
-      transition,
-      willChange: 'opacity, transform, filter',
+      willChange: 'opacity',
     };
   }
 
   return {
     opacity: 1,
-    transform: 'translate3d(0, 0, 0) scale(1)',
-    transformOrigin: '50% 65%',
     transition,
-    willChange: 'opacity, transform, filter',
+    willChange: 'opacity',
   };
 }
+
 
 export function buildBattleSceneModel({
   mapId,
@@ -233,10 +209,12 @@ export function buildBattleSceneModel({
     : enemyChars;
 
   const allChars = [...validChars, ...regularEnemyChars]
-    .filter((char) => (
-      Number(char?.health || 0) > 0 ||
-      Boolean(animations?.[char?.id]?.keepVisible)
-    ))
+    .filter((char) => {
+      const visualHealth = effectiveStatsOverridesByCharId?.[char.id]
+        ? Number(effectiveStatsOverridesByCharId[char.id].health ?? 0)
+        : Number(char?.health ?? 0);
+      return visualHealth > 0 || Boolean(animations?.[char?.id]?.keepVisible);
+    })
     .sort((a, b) => a.position.row - b.position.row);
 
   const underlay = [];

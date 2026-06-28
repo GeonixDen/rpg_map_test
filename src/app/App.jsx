@@ -53,6 +53,7 @@ function filterActionsByVisibility(actionsByTile, visibleTileSet) {
 export default function App() {
   const [cameraMode, setCameraMode] = useState('follow');
   const [squadModalOpen, setSquadModalOpen] = useState(false);
+  const [initialSquadSlot, setInitialSquadSlot] = useState(null);
   const [journalModalOpen, setJournalModalOpen] = useState(false);
   const [readySceneId, setReadySceneId] = useState(null);
   const [mapTransitionKey, setMapTransitionKey] = useState(null);
@@ -195,8 +196,9 @@ export default function App() {
   const handleSceneReady = useCallback((sceneId) => {
     setReadySceneId(sceneId);
   }, []);
-  const handleOpenSquad = useCallback(() => {
+  const handleOpenSquad = useCallback((slot = null) => {
     if (!squadState) return;
+    setInitialSquadSlot(slot);
     setSquadModalOpen(true);
     setJournalModalOpen(false);
   }, [squadState]);
@@ -294,6 +296,7 @@ export default function App() {
         mapEntry={selected}
         squad={squadState}
         player={serverPlayer}
+        exploration={exploration}
         visible={!dialogModal && !battleModalVisible}
         onOpenSquad={handleOpenSquad}
         busy={actionBusy}
@@ -335,6 +338,7 @@ export default function App() {
         busy={actionBusy}
         onClose={() => setSquadModalOpen(false)}
         onAction={handleUiAction}
+        defaultSelectedSlot={initialSquadSlot}
       />
       <JournalModal
         journal={journalState}

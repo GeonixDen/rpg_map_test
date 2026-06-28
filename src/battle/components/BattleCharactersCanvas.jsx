@@ -170,20 +170,20 @@ function getLifeAnimationTarget(actor) {
 
   if (actor.animation.removingDead) {
     return {
-      opacity: numberOr(LIFE_ANIMATION.deadFadeOpacity, 0),
-      dropY: numberOr(LIFE_ANIMATION.deadFadeDropY, -34),
-      scale: numberOr(LIFE_ANIMATION.deadFadeScale, 0.72),
-      rotation: direction * numberOr(LIFE_ANIMATION.deadFadeRotation, 0.075),
-      config: { duration: numberOr(LIFE_ANIMATION.removeDeadFadeMs, 420) },
+      opacity: 0,
+      dropY: 0,
+      scale: 1,
+      rotation: 0,
+      config: { duration: numberOr(LIFE_ANIMATION.removeDeadFadeMs, 320) },
     };
   }
 
   if (actor.animation.dead) {
     return {
-      opacity: numberOr(LIFE_ANIMATION.deadOpacity, 0.16),
-      dropY: numberOr(LIFE_ANIMATION.deadDropY, -18),
-      scale: numberOr(LIFE_ANIMATION.deadScale, 0.88),
-      rotation: direction * numberOr(LIFE_ANIMATION.deadRotation, 0.025),
+      opacity: 1,
+      dropY: 0,
+      scale: 1,
+      rotation: 0,
       config: LIFE_ANIMATION.spring || { tension: 220, friction: 24 },
     };
   }
@@ -196,6 +196,7 @@ function getLifeAnimationTarget(actor) {
     config: LIFE_ANIMATION.spring || { tension: 220, friction: 24 },
   };
 }
+
 
 function CanvasDebugProbe({ enabled, spriteCount, onSample }) {
   const { gl, size } = useThree();

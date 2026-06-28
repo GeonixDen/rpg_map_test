@@ -1,5 +1,5 @@
 import React, { memo, useMemo } from 'react';
-import { BookOpen, Crown, Flag, MapPin, UsersRound } from 'lucide-react';
+import { Binoculars, BookOpen, Compass, Crown, Flag, MapPin, Shield, Swords, UsersRound } from 'lucide-react';
 import { getHealthPercent, getHealthTone } from '../utils/healthTone.js';
 
 const FACTION_TONES = {
@@ -172,46 +172,147 @@ function LocationBadge({ location, showMapButton, mapButtonActive, onToggleMap }
   );
 }
 
-function FactionSituation({ factions }) {
+function FactionBanner({ data, tone }) {
+  if (!data) return null;
+  const isCurrent = !!data.current;
+
+  // Dimensions
+  const isEmerald = tone === 'emerald';
+  const width = 30;
+  const height = isEmerald ? 88 : 82;
+  const pathD = isEmerald
+    ? 'M 1.25,0.5 L 28.75,0.5 L 28.75,78 L 15,86.5 L 1.25,78 Z'
+    : 'M 1.25,0.5 L 28.75,0.5 L 28.75,72 L 15,80.5 L 1.25,72 Z';
+
+  // Colors
+  const strokeColor = isCurrent ? '#ffd86b' : (tone === 'iron' ? '#4a7ab5' : tone === 'emerald' ? '#3b7d51' : '#9d3e3e');
+  const strokeWidth = isCurrent ? 2 : 1.2;
+
+  // Gradients definition
+  const gradId = `grad-${tone}`;
+  let stop1, stop2;
+  if (tone === 'iron') {
+    stop1 = '#203c70';
+    stop2 = '#0a1426';
+  } else if (tone === 'emerald') {
+    stop1 = '#123f20';
+    stop2 = '#081c0e';
+  } else {
+    stop1 = '#521919';
+    stop2 = '#1f0909';
+  }
+
+  return (
+    <div
+      className={`faction-banner faction-banner--${tone} ${isCurrent ? 'is-current' : ''} ${data.leader ? 'is-leader' : ''}`}
+      style={{ width: `${width}px`, height: `${height}px` }}
+      title={data.name}
+    >
+      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="faction-banner__svg">
+        <defs>
+          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={stop1} />
+            <stop offset="100%" stopColor={stop2} />
+          </linearGradient>
+        </defs>
+        <path d={pathD} fill={`url(#${gradId})`} stroke={strokeColor} strokeWidth={strokeWidth} />
+      </svg>
+      <div className="faction-banner__overlay">
+        {data.leader ? <Crown size={14} className="faction-banner__icon" /> : null}
+        <span className="faction-banner__count">{formatNumber(data.count)}</span>
+      </div>
+    </div>
+  );
+}
+
+function FactionBanners({ factions }) {
   const items = Array.isArray(factions?.items) ? factions.items : [];
   if (!items.length) return null;
 
-  return (
-    <section className="map-hud-factions" aria-label="Ситуация по фракциям">
-      <span className="map-hud-factions__title">
-        <Flag size={13} />
-        <span>Фракции</span>
-      </span>
-      <span className="map-hud-factions__list">
-        {items.map((item) => {
-          const tone = FACTION_TONES[item.id] || 'neutral';
-          const compactName = getCompactFactionName(item.name);
+  const iron = items.find((item) => item.id === 'Sign_of_the_Iron_Legion');
+  const emerald = items.find((item) => item.id === 'Sign_of_the_Emerald_Circle');
+  const ash = items.find((item) => item.id === 'Sign_of_the_Ash_Crown');
 
-          return (
-            <span
-              key={item.id}
-              className={`map-hud-faction map-hud-faction--${tone} ${item.current ? 'is-current' : ''} ${item.leader ? 'is-leader' : ''}`}
-              title={item.name}
-            >
-              <span className="map-hud-faction__mark">{item.emoji || '•'}</span>
-              <span className="map-hud-faction__body">
-                <strong>{formatNumber(item.count)}</strong>
-                <small>{compactName || item.name}</small>
-              </span>
-              {item.leader ? <Crown className="map-hud-faction__leader" size={13} /> : null}
-              {item.current && (item.activePoints || item.passivePoints) ? (
-                <span className="map-hud-faction__personal">
-                  {item.activePoints ? `+${item.activePoints}` : ''}
-                  {item.passivePoints ? `/${item.passivePoints}` : ''}
-                </span>
-              ) : null}
-            </span>
-          );
-        })}
-      </span>
-    </section>
+  return (
+    <div className="faction-banners">
+      <FactionBanner data={iron} tone="iron" />
+      <FactionBanner data={emerald} tone="emerald" />
+      <FactionBanner data={ash} tone="ash" />
+    </div>
   );
 }
+
+function ExplorationFactionsWidget({ factions, exploration, onToggleMap, mapButtonActive, location }) {
+  const exploredPct = exploration?.exploredPct != null ? Math.round(exploration.exploredPct) : 80;
+  const isExplored = exploredPct === 100 || !!exploration?.canShowMap;
+  const isClickable = isExplored && typeof onToggleMap === 'function';
+
+  const x = Number(location?.coords?.x);
+  const y = Number(location?.coords?.y);
+  const hasCoords = Number.isFinite(x) && Number.isFinite(y);
+
+  const emblemContent = (
+    <>
+      <div className="exploration-emblem__inner">
+        <div className="exploration-emblem__compass">
+          <Compass size={16} className="exploration-emblem__compass-icon" />
+        </div>
+        {!isExplored && (
+          <div className="exploration-emblem__label">
+            <Binoculars size={14} className="exploration-emblem__label-icon" />
+            <span className="exploration-emblem__label-text">РАЗВЕДКА</span>
+          </div>
+        )}
+        <div className="exploration-emblem__percentage">
+          {isExplored ? (mapButtonActive ? 'ЗАКРЫТЬ' : 'КАРТА') : `${exploredPct}%`}
+        </div>
+      </div>
+      <div className="exploration-emblem__pin exploration-emblem__pin--top" />
+      <div className="exploration-emblem__pin exploration-emblem__pin--right" />
+      <div className="exploration-emblem__pin exploration-emblem__pin--bottom" />
+      <div className="exploration-emblem__pin exploration-emblem__pin--left" />
+    </>
+  );
+
+  const emblemClass = `exploration-emblem ${isClickable ? 'is-clickable' : ''} ${isExplored ? 'is-explored' : ''} ${mapButtonActive ? 'is-active' : ''}`;
+
+  return (
+    <div className="exploration-factions-widget">
+      <div className="exploration-factions-widget__main-row">
+        <div className="exploration-emblem-wrap">
+          {isClickable ? (
+            <button
+              className={emblemClass}
+              onClick={onToggleMap}
+              type="button"
+              aria-label="Открыть карту"
+              title="Открыть карту"
+            >
+              {emblemContent}
+            </button>
+          ) : (
+            <div className={emblemClass} aria-label="Прогресс исследования">
+              {emblemContent}
+            </div>
+          )}
+          <FactionBanners factions={factions} />
+        </div>
+
+        {location && (
+          <div className="exploration-factions-widget__location">
+            <h1 className="exploration-factions-widget__location-name">{location.name}</h1>
+            {hasCoords && (
+              <span className="exploration-factions-widget__location-coords">
+                x:{Math.round(x)} y:{Math.round(y)}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 
 function PartyPanel({ party }) {
   const members = Array.isArray(party?.members) ? party.members : [];
@@ -279,20 +380,22 @@ function SquadMiniatures({ members, busy, onAction, onOpenSquad }) {
         const key = member?.id || `slot:${slotRow}:${col}`;
         const maskUpgrade = member?.maskUpgrade || null;
         const handleClick = () => {
-          if (!member) return;
           if (maskUpgrade?.action && onAction) {
             onAction(maskUpgrade.action);
-            return;
+          } else if (onOpenSquad) {
+            onOpenSquad({ row: slotRow, col, charId: member?.id || null });
           }
-          if (onOpenSquad) onOpenSquad();
         };
 
         if (!member) {
           return (
-            <span
+            <button
               key={key}
-              className="map-hud-squad__member is-empty"
-              title={`Пустой слот ${slotRow + 1}:${col + 1}`}
+              className="map-hud-squad__member is-empty is-clickable"
+              type="button"
+              disabled={busy}
+              title={`Пустая позиция: Ряд ${slotRow + 1}, слот ${col === 0 ? 'Дальний' : 'Ближний'}`}
+              onClick={handleClick}
             />
           );
         }
@@ -303,7 +406,7 @@ function SquadMiniatures({ members, busy, onAction, onOpenSquad }) {
             className={`map-hud-squad__member map-hud-squad__member--${member.rarity || 'standard'} map-hud-squad__member--hp-${hpTone} ${maskUpgrade ? 'has-mask-upgrade' : ''}`}
             type="button"
             disabled={busy}
-            title={maskUpgrade ? `Применить маску: ${maskUpgrade.name}` : `${member.name}: ${formatHp(member.health, member.maxHealth)}`}
+            title={`${member.name}: ${formatHp(member.health, member.maxHealth)}`}
             onClick={handleClick}
           >
             {member.spriteUrl ? <img src={member.spriteUrl} alt="" draggable="false" /> : <em>{getHeroLabel(member)}</em>}
@@ -378,6 +481,7 @@ function MapHud({
   mapEntry,
   squad,
   player,
+  exploration,
   visible = true,
   onOpenSquad,
   busy,
@@ -399,17 +503,16 @@ function MapHud({
   return (
     <div className="map-hud" aria-label="Интерфейс карты">
       <div className="map-hud__top-left">
-        <LocationBadge
-          location={view.location}
-          showMapButton={showMapButton}
-          mapButtonActive={mapButtonActive}
+        <ExplorationFactionsWidget
+          factions={view.factions}
+          exploration={exploration}
           onToggleMap={onToggleMap}
+          mapButtonActive={mapButtonActive}
+          location={view.location}
         />
       </div>
 
-      <div className="map-hud__top-right">
-        <FactionSituation factions={view.factions} />
-      </div>
+      <div className="map-hud__top-right" />
 
       <div className="map-hud__bottom-left">
         <MapHudControls
