@@ -1,14 +1,14 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { BookOpen, Map as MapIcon, Route, SlidersHorizontal, UsersRound } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BookOpen, Map as MapIcon, UsersRound } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { APP_CONFIG } from '../config/appConfig.js';
 import MapScene from '../scene/MapScene.jsx';
 import { useMapDemoStore } from '../store/mapDemoStore.js';
 import { buildChunkModel, tileToWorld } from '../utils/mapModel.js';
-import { formatNumber } from '../utils/format.js';
 import BattleModal from '../battle/BattleModal.jsx';
 import DialogModal from './DialogModal.jsx';
 import JournalModal from './JournalModal.jsx';
+import LoadingScreen from './LoadingScreen.jsx';
 import MapKeyboardPanel from './MapKeyboardPanel.jsx';
 import SquadModal from './SquadModal.jsx';
 import ToastStack from './ToastStack.jsx';
@@ -51,90 +51,13 @@ function filterActionsByVisibility(actionsByTile, visibleTileSet) {
   return Object.fromEntries(Object.entries(actionsByTile).filter(([tileKey]) => visibleTileSet.has(tileKey)));
 }
 
-function DemoPanels({
-  selected,
-  model,
-  serverPlayer,
-  live,
-  liveLabel,
-  showTransitionLabels,
-  setShowTransitionLabels,
-}) {
-  const renderStats = useMapDemoStore((state) => state.renderStats);
-
-  return (
-    <>
-      <div className="map-toolbar">
-        <div className="map-toolbar__main">
-          <div className="map-toolbar__title" title={selected.id}>
-            {selected.title} · {selected.id}
-          </div>
-          <button
-            className={`icon-button ${showTransitionLabels ? 'is-active' : ''}`}
-            type="button"
-            onClick={() => setShowTransitionLabels(!showTransitionLabels)}
-            title="Подписи переходов"
-          >
-            <Route size={18} />
-          </button>
-        </div>
-      </div>
-
-      <section className="map-meta" aria-label="Информация о карте">
-        <div>
-          <strong>{selected.title}</strong>
-          <span>{selected.id}</span>
-        </div>
-        <dl>
-          <div>
-            <dt>Размер</dt>
-            <dd>
-              {selected.dimensions.cols} x {selected.dimensions.rows}
-            </dd>
-          </div>
-          <div>
-            <dt>Клетки</dt>
-            <dd>{formatNumber(selected.dimensions.cells)}</dd>
-          </div>
-          <div>
-            <dt>Тип</dt>
-            <dd>{selected.map.type || 'default'}</dd>
-          </div>
-          <div>
-            <dt>Рендер</dt>
-            <dd>
-              {renderStats.mode === 'overview'
-                ? 'overview'
-                : `${renderStats.visibleChunks}/${renderStats.totalChunks} chunks`}
-            </dd>
-          </div>
-          <div>
-            <dt>Неизвестно</dt>
-            <dd>{model.unknownCount}</dd>
-          </div>
-          <div>
-            <dt>Клик</dt>
-            <dd>-</dd>
-          </div>
-          <div>
-            <dt>Игрок</dt>
-            <dd>{serverPlayer ? `${serverPlayer.x}, ${serverPlayer.y}` : '-'}</dd>
-          </div>
-          <div>
-            <dt>Live</dt>
-            <dd title={live.error || live.actionError || ''}>{live.actionError || liveLabel}</dd>
-          </div>
-        </dl>
-      </section>
-    </>
-  );
-}
-
 export default function App() {
-  const [showDemoPanels, setShowDemoPanels] = useState(false);
   const [cameraMode, setCameraMode] = useState('follow');
   const [squadModalOpen, setSquadModalOpen] = useState(false);
   const [journalModalOpen, setJournalModalOpen] = useState(false);
+  const [readySceneId, setReadySceneId] = useState(null);
+  const [mapTransitionKey, setMapTransitionKey] = useState(null);
+  const presentedMapIdRef = useRef(null);
   const {
     loading,
     maps,
@@ -152,8 +75,6 @@ export default function App() {
     loadMaps,
     connectLive,
     disconnectLive,
-    setShowTransitionLabels,
-    setRenderStats,
     handleTileClick,
     sendServerAction,
     dismissToast,
@@ -176,8 +97,6 @@ export default function App() {
       loadMaps: state.loadMaps,
       connectLive: state.connectLive,
       disconnectLive: state.disconnectLive,
-      setShowTransitionLabels: state.setShowTransitionLabels,
-      setRenderStats: state.setRenderStats,
       handleTileClick: state.handleTileClick,
       sendServerAction: state.sendServerAction,
       dismissToast: state.dismissToast,
@@ -191,8 +110,12 @@ export default function App() {
     return () => disconnectLive();
   }, [connectLive, disconnectLive, loadMaps]);
 
-  const selectedIndex = Math.max(0, mapEntries.findIndex((entry) => entry.id === selectedId));
-  const selected = mapEntries[selectedIndex] || null;
+  const serverMapId = live.mapState?.ok ? live.mapState.mapId : null;
+  const serverMapExists = !serverMapId || mapEntries.some((entry) => entry.id === serverMapId);
+  const selectedIdForView = serverMapId && serverMapExists ? serverMapId : selectedId;
+  const selected = selectedIdForView
+    ? mapEntries.find((entry) => entry.id === selectedIdForView) || null
+    : null;
   const liveOnSelectedMap = live.mapState?.ok && live.mapState.mapId === selected?.id ? live.mapState : null;
   const exploration = liveOnSelectedMap?.exploration || null;
   const visibleTileSet = useMemo(() => createVisibleTileSet(exploration), [exploration]);
@@ -200,6 +123,7 @@ export default function App() {
     () => (selected ? buildChunkModel(selected.map) : null),
     [selected],
   );
+  const sceneReady = !!selected?.id && readySceneId === selected.id;
   const liveUiType = String(liveOnSelectedMap?.uiState?.type || '').toLowerCase();
   const currentUiType = String(live.mapState?.uiState?.type || '').toLowerCase();
   const battleUiType = String(live.battleState?.uiState?.type || currentUiType).toLowerCase();
@@ -274,6 +198,9 @@ export default function App() {
     },
     [sendServerAction],
   );
+  const handleSceneReady = useCallback((sceneId) => {
+    setReadySceneId(sceneId);
+  }, []);
   const handleMapKeyboardAction = useCallback(
     (action) => {
       if (action === 'showSq') {
@@ -304,32 +231,52 @@ export default function App() {
       setJournalModalOpen(false);
     }
   }, [battleModalVisible, dialogModal, journalState]);
-  const liveLabel =
-    live.status === 'ready'
-      ? `${live.transport || 'live'} ${otherPlayers.length}/${actors.length}${
-          live.actionStatus === 'sending' ? ' move...' : ''
-        }`
-      : live.status;
+
+  useEffect(() => {
+    if (!selected?.id || !sceneReady) return undefined;
+
+    const previousMapId = presentedMapIdRef.current;
+    presentedMapIdRef.current = selected.id;
+
+    if (!previousMapId || previousMapId === selected.id) return undefined;
+
+    setMapTransitionKey(selected.id);
+    const timeoutId = window.setTimeout(() => {
+      setMapTransitionKey((current) => (current === selected.id ? null : current));
+    }, APP_CONFIG.mapTransition.fadeMs);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [sceneReady, selected?.id]);
 
   if (loading) {
-    return <div className="app-status">Загрузка карт...</div>;
+    return <LoadingScreen message="Загружаем карты..." />;
   }
 
-  if (error || !selected || !model) {
-    return <div className="app-status">Не удалось загрузить карты: {error?.message || 'пустой список'}</div>;
+  if (error) {
+    return <LoadingScreen error={error.message || 'Пустой список карт'} />;
+  }
+
+  if (APP_CONFIG.backend.enabled && !live.mapState?.ok) {
+    const serverError = live.status === 'error' || live.status === 'disabled' ? live.error || live.status : null;
+    if (serverError) return <LoadingScreen error={serverError} />;
+
+    return <LoadingScreen message="Подключаемся к серверу..." />;
+  }
+
+  if (APP_CONFIG.backend.enabled && serverMapId && !serverMapExists) {
+    return <LoadingScreen error={`Карта ${serverMapId} не найдена в maps.json`} />;
+  }
+
+  if (!selected || !model) {
+    return <LoadingScreen error="Пустой список карт" />;
+  }
+
+  if (APP_CONFIG.backend.enabled && !liveOnSelectedMap) {
+    return <LoadingScreen message="Синхронизируем локацию..." />;
   }
 
   return (
     <main className="app-shell">
-      <button
-        className={`demo-toggle ${showDemoPanels ? 'is-active' : ''}`}
-        type="button"
-        onClick={() => setShowDemoPanels((visible) => !visible)}
-        title="Демо панели"
-      >
-        <SlidersHorizontal size={13} />
-      </button>
-
       {showMapViewToggle ? (
         <button
           className={`map-view-toggle ${isFullMap ? 'is-active' : ''}`}
@@ -372,18 +319,6 @@ export default function App() {
         </button>
       ) : null}
 
-      {showDemoPanels ? (
-        <DemoPanels
-          selected={selected}
-          model={model}
-          serverPlayer={serverPlayer}
-          live={live}
-          liveLabel={liveLabel}
-          showTransitionLabels={showTransitionLabels}
-          setShowTransitionLabels={setShowTransitionLabels}
-        />
-      ) : null}
-
       <MapScene
         map={selected.map}
         mapsDict={maps}
@@ -405,17 +340,20 @@ export default function App() {
         otherPlayers={otherPlayers}
         actors={actors}
         transitionLabelBlockers={liveLayers?.npcs || EMPTY_ARRAY}
-        onRenderStats={setRenderStats}
+        onSceneReady={handleSceneReady}
       />
-      <div
-        key={`map-transition:${selected.id}`}
-        className="map-scene-transition"
-        aria-hidden="true"
-        style={{
-          '--map-transition-bg': APP_CONFIG.mapTransition.background,
-          '--map-transition-ms': `${APP_CONFIG.mapTransition.fadeMs}ms`,
-        }}
-      />
+      {mapTransitionKey === selected.id ? (
+        <div
+          key={`map-transition:${selected.id}`}
+          className="map-scene-transition"
+          aria-hidden="true"
+          style={{
+            '--map-transition-bg': APP_CONFIG.mapTransition.background,
+            '--map-transition-ms': `${APP_CONFIG.mapTransition.fadeMs}ms`,
+          }}
+        />
+      ) : null}
+      {!sceneReady ? <LoadingScreen overlay message="Готовим сцену..." /> : null}
       <DialogModal
         dialog={battleModalVisible ? null : dialogModal}
         busy={actionBusy}

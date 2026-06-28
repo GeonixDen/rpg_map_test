@@ -181,7 +181,6 @@ export const useMapDemoStore = create((set, get) => ({
   maps: null,
   mapEntries: [],
   selectedId: null,
-  manualMapSelection: false,
   error: null,
 
   showTransitionLabels: APP_CONFIG.transitionLabels.visibleByDefault,
@@ -193,11 +192,6 @@ export const useMapDemoStore = create((set, get) => ({
   movementAnimation: null,
   pendingActionResult: null,
   selectedActionTile: null,
-  renderStats: {
-    mode: 'chunks',
-    visibleChunks: 0,
-    totalChunks: 0,
-  },
 
   live: {
     enabled: APP_CONFIG.backend.enabled,
@@ -222,10 +216,11 @@ export const useMapDemoStore = create((set, get) => ({
       const mapEntries = createMapEntries(maps);
       const currentSelected = get().selectedId;
       const liveMapId = get().live.mapState?.mapId;
+      const fallbackMapId = APP_CONFIG.backend.enabled ? null : mapEntries[0]?.id || null;
       const nextSelected =
         (currentSelected && mapEntries.some((entry) => entry.id === currentSelected) && currentSelected) ||
         (liveMapId && mapEntries.some((entry) => entry.id === liveMapId) && liveMapId) ||
-        mapEntries[0]?.id ||
+        fallbackMapId ||
         null;
 
       set({
@@ -239,36 +234,6 @@ export const useMapDemoStore = create((set, get) => ({
     }
   },
 
-  selectMap: (mapId, { manual = true } = {}) => {
-    if (!mapId || get().selectedId === mapId) {
-      if (manual) set({ manualMapSelection: true });
-      return;
-    }
-
-    set((state) => ({
-      selectedId: mapId,
-      manualMapSelection: manual || state.manualMapSelection,
-    }));
-  },
-
-  goToMap: (delta) => {
-    const { mapEntries, selectedId } = get();
-    if (!mapEntries.length) return;
-
-    const currentIndex = Math.max(0, mapEntries.findIndex((entry) => entry.id === selectedId));
-    const nextIndex = (currentIndex + delta + mapEntries.length) % mapEntries.length;
-    get().selectMap(mapEntries[nextIndex].id, { manual: true });
-  },
-
-  setShowTransitionLabels: (showTransitionLabels) => set({ showTransitionLabels }),
-  setRenderStats: (renderStats) =>
-    set((state) =>
-      state.renderStats.mode === renderStats?.mode &&
-      state.renderStats.visibleChunks === renderStats?.visibleChunks &&
-      state.renderStats.totalChunks === renderStats?.totalChunks
-        ? state
-        : { renderStats },
-    ),
   pushToast: (toast) =>
     set((state) => ({
       toasts: [
@@ -568,7 +533,6 @@ export const useMapDemoStore = create((set, get) => ({
 
       return {
         selectedId: canFollowMap ? mapState.mapId : state.selectedId,
-        manualMapSelection: false,
         dialogModal: nextUiType && nextUiType !== 'dialog' ? null : state.dialogModal,
         mapKeyboardRows: mapKeyboardRows.length ? mapKeyboardRows : state.mapKeyboardRows,
         selectedActionTile:

@@ -20,7 +20,7 @@ export default function TileLayer({
   fogOfWarEnabled = false,
   visibleTileKeys = null,
   transitionLabelBlockers = [],
-  onRenderStats,
+  onSceneReady,
 }) {
   const texture = useTexture(APP_CONFIG.data.tilesetUrl);
   const { camera, size } = useThree();
@@ -28,6 +28,7 @@ export default function TileLayer({
   const [mode, setMode] = useState('chunks');
   const lastRangeKeyRef = useRef('');
   const lastModeRef = useRef('chunks');
+  const sceneReadyReportedRef = useRef(false);
 
   useEffect(() => {
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -58,6 +59,7 @@ export default function TileLayer({
     setMode('chunks');
     lastRangeKeyRef.current = '';
     lastModeRef.current = 'chunks';
+    sceneReadyReportedRef.current = false;
   }, [model.id]);
 
   useFrame(({ clock }) => {
@@ -114,12 +116,18 @@ export default function TileLayer({
   );
 
   useEffect(() => {
-    onRenderStats?.({
-      mode,
-      visibleChunks: mode === 'overview' ? 0 : visibleChunks.length,
-      totalChunks: model.chunks.length,
+    if (sceneReadyReportedRef.current || !onSceneReady || !texture.image) return undefined;
+
+    const hasRenderableTiles = mode === 'overview' || visibleChunks.length > 0 || model.chunks.length === 0;
+    if (!hasRenderableTiles) return undefined;
+
+    const frameId = requestAnimationFrame(() => {
+      sceneReadyReportedRef.current = true;
+      onSceneReady(model.id);
     });
-  }, [mode, model.chunks.length, onRenderStats, visibleChunks.length]);
+
+    return () => cancelAnimationFrame(frameId);
+  }, [mode, model.chunks.length, model.id, onSceneReady, texture.image, visibleChunks.length]);
 
   return (
     <group>

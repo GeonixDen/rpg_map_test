@@ -31,11 +31,11 @@ function MapScene({
   questGuide,
   onMovementComplete,
   onTileClick,
-  onRenderStats,
   mapsDict,
   otherPlayers = [],
   actors = [],
   transitionLabelBlockers = [],
+  onSceneReady,
 }) {
   const { renderer, camera } = APP_CONFIG;
   const playerWorldRef = useRef(null);
@@ -71,7 +71,7 @@ function MapScene({
           fogOfWarEnabled={fogOfWarEnabled}
           visibleTileKeys={visibleTileKeys}
           transitionLabelBlockers={transitionLabelBlockers}
-          onRenderStats={onRenderStats}
+          onSceneReady={onSceneReady}
         />
         <DynamicEntitiesLayer
           entities={otherPlayers}
