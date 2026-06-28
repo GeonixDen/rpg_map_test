@@ -1,5 +1,6 @@
 import React, { memo, useMemo } from 'react';
-import { BookOpen, Crown, Flag, Map as MapIcon, MapPin, UsersRound } from 'lucide-react';
+import { BookOpen, Crown, Flag, MapPin, UsersRound } from 'lucide-react';
+import { getHealthPercent, getHealthTone } from '../utils/healthTone.js';
 
 const FACTION_TONES = {
   Sign_of_the_Iron_Legion: 'iron',
@@ -46,13 +47,21 @@ function getCompactFactionName(name) {
     .trim();
 }
 
-function getHpPercent(member) {
-  if (!member?.maxHealth) return 0;
-  return clampPercent((Number(member.health || 0) / Number(member.maxHealth || 1)) * 100);
-}
-
 function getHeroLabel(item) {
   return HERO_LABELS[item?.class || item?.templateId] || String(item?.name || '?').trim().slice(0, 1).toUpperCase() || '?';
+}
+
+function getAutoNormalMask(char) {
+  const masks = Array.isArray(char?.masks?.normal) ? char.masks.normal : [];
+  const mask = masks.find((item) => item?.type !== 'echo' && item?.canUse && item?.action);
+  if (!mask) return null;
+
+  return {
+    id: mask.id,
+    name: mask.name || 'Маска',
+    action: mask.action,
+    tierRoman: mask.tierRoman || mask.tier || '',
+  };
 }
 
 function buildFallbackSquadHealth(squad) {
@@ -72,8 +81,24 @@ function buildFallbackSquadHealth(squad) {
   };
 }
 
+function enrichSquadHealth(squadHealth, squad) {
+  const byId = new Map((Array.isArray(squad?.chars) ? squad.chars : []).map((char) => [String(char.id), char]));
+
+  return {
+    ...squadHealth,
+    members: (Array.isArray(squadHealth?.members) ? squadHealth.members : []).map((member) => {
+      const fullChar = byId.get(String(member?.id)) || member;
+      return {
+        ...member,
+        masks: fullChar?.masks || member?.masks || null,
+        maskUpgrade: getAutoNormalMask(fullChar),
+      };
+    }),
+  };
+}
+
 function normalizeHud(hud, mapEntry, squad, player) {
-  const squadHealth = hud?.squadHealth || buildFallbackSquadHealth(squad);
+  const squadHealth = enrichSquadHealth(hud?.squadHealth || buildFallbackSquadHealth(squad), squad);
   const partyMembers = Array.isArray(hud?.party?.members) && hud.party.members.length
     ? hud.party.members
     : [{
@@ -103,21 +128,46 @@ function normalizeHud(hud, mapEntry, squad, player) {
   };
 }
 
-function LocationBadge({ location }) {
+function LocationBadge({ location, showMapButton, mapButtonActive, onToggleMap }) {
   const x = Number(location?.coords?.x);
   const y = Number(location?.coords?.y);
   const hasCoords = Number.isFinite(x) && Number.isFinite(y);
-
-  return (
-    <section className="map-hud-location" aria-label="Текущая локация">
+  const isClickable = Boolean(showMapButton && onToggleMap);
+  const actionLabel = mapButtonActive ? 'К игроку' : 'Открыть карту';
+  const title = mapButtonActive ? 'Вернуться к игроку' : 'Открыть полную карту';
+  const content = (
+    <>
       <span className="map-hud-location__icon">
         <MapPin size={15} />
       </span>
       <span className="map-hud-location__text">
-        <small>Локация</small>
+        <small>{isClickable ? 'Локация / карта' : 'Локация'}</small>
         <strong>{location.name}</strong>
-        {hasCoords ? <em>x:{Math.round(x)} y:{Math.round(y)}</em> : null}
+        <span className="map-hud-location__meta">
+          {hasCoords ? <em>x:{Math.round(x)} y:{Math.round(y)}</em> : null}
+          {isClickable ? <b>{actionLabel}</b> : null}
+        </span>
       </span>
+    </>
+  );
+
+  if (isClickable) {
+    return (
+      <button
+        className={`map-hud-location is-clickable ${mapButtonActive ? 'is-active' : ''}`}
+        type="button"
+        aria-label={title}
+        title={title}
+        onClick={onToggleMap}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <section className="map-hud-location" aria-label="Текущая локация">
+      {content}
     </section>
   );
 }
@@ -216,7 +266,7 @@ function createSquadSlots(members) {
   ));
 }
 
-function SquadMiniatures({ members }) {
+function SquadMiniatures({ members, busy, onAction, onOpenSquad }) {
   const rows = createSquadSlots(members);
   const hasMembers = rows.some((row) => row.some((slot) => slot.member));
   if (!hasMembers) return null;
@@ -224,57 +274,87 @@ function SquadMiniatures({ members }) {
   return (
     <span className="map-hud-squad__members" aria-label="Персонажи отряда">
       {rows.flatMap((row) => row.map(({ row: slotRow, col, member }) => {
-        const hp = getHpPercent(member);
+        const hp = getHealthPercent(member);
+        const hpTone = getHealthTone(member);
         const key = member?.id || `slot:${slotRow}:${col}`;
+        const maskUpgrade = member?.maskUpgrade || null;
+        const handleClick = () => {
+          if (!member) return;
+          if (maskUpgrade?.action && onAction) {
+            onAction(maskUpgrade.action);
+            return;
+          }
+          if (onOpenSquad) onOpenSquad();
+        };
+
+        if (!member) {
+          return (
+            <span
+              key={key}
+              className="map-hud-squad__member is-empty"
+              title={`Пустой слот ${slotRow + 1}:${col + 1}`}
+            />
+          );
+        }
 
         return (
-          <span
+          <button
             key={key}
-            className={`map-hud-squad__member ${member ? `map-hud-squad__member--${member.rarity || 'standard'}` : 'is-empty'}`}
-            title={member ? `${member.name}: ${formatHp(member.health, member.maxHealth)}` : `Пустой слот ${slotRow + 1}:${col + 1}`}
+            className={`map-hud-squad__member map-hud-squad__member--${member.rarity || 'standard'} map-hud-squad__member--hp-${hpTone} ${maskUpgrade ? 'has-mask-upgrade' : ''}`}
+            type="button"
+            disabled={busy}
+            title={maskUpgrade ? `Применить маску: ${maskUpgrade.name}` : `${member.name}: ${formatHp(member.health, member.maxHealth)}`}
+            onClick={handleClick}
           >
-            {member?.spriteUrl ? <img src={member.spriteUrl} alt="" draggable="false" /> : <em>{member ? getHeroLabel(member) : ''}</em>}
-            {member ? <i style={{ height: `${hp}%` }} /> : null}
-          </span>
+            {member.spriteUrl ? <img src={member.spriteUrl} alt="" draggable="false" /> : <em>{getHeroLabel(member)}</em>}
+            {maskUpgrade ? <span className="map-hud-squad__upgrade" aria-hidden="true" /> : null}
+            <i style={{ height: `${hp}%` }} />
+          </button>
         );
       }))}
     </span>
   );
 }
 
-function SquadStatus({ squadHealth, onOpenSquad }) {
+function SquadStatus({ squadHealth, busy, onAction, onOpenSquad }) {
   const members = Array.isArray(squadHealth?.members) ? squadHealth.members : [];
 
   return (
-    <button
+    <section
       className={`map-hud-squad map-hud-squad--${squadHealth?.tone || 'healthy'}`}
-      type="button"
-      onClick={onOpenSquad}
-      title="Открыть отряд"
+      aria-label="Отряд"
     >
-      <span className="map-hud-squad__head">
+      <button
+        className="map-hud-squad__head"
+        type="button"
+        disabled={busy}
+        onClick={onOpenSquad}
+        title="Открыть отряд"
+      >
         <span>
           <UsersRound size={14} />
           <small>Отряд</small>
         </span>
-      </span>
+      </button>
 
       <span className="map-hud-squad__bottom">
-        <SquadMiniatures members={members} />
+        <SquadMiniatures
+          members={members}
+          busy={busy}
+          onAction={onAction}
+          onOpenSquad={onOpenSquad}
+        />
       </span>
-    </button>
+    </section>
   );
 }
 
 function MapHudControls({
-  showMapButton,
-  mapButtonActive,
-  onToggleMap,
   showJournalButton,
   journalButtonActive,
   onOpenJournal,
 }) {
-  if (!showMapButton && !showJournalButton) return null;
+  if (!showJournalButton) return null;
 
   return (
     <div className="map-hud-actions" aria-label="Действия карты">
@@ -289,17 +369,6 @@ function MapHudControls({
           <span>Журнал</span>
         </button>
       ) : null}
-      {showMapButton ? (
-        <button
-          className={`map-hud-action ${mapButtonActive ? 'is-active' : ''}`}
-          type="button"
-          onClick={onToggleMap}
-          title={mapButtonActive ? 'Следовать за игроком' : 'Карта'}
-        >
-          <MapIcon size={15} />
-          <span>{mapButtonActive ? 'Игрок' : 'Карта'}</span>
-        </button>
-      ) : null}
     </div>
   );
 }
@@ -311,6 +380,8 @@ function MapHud({
   player,
   visible = true,
   onOpenSquad,
+  busy,
+  onAction,
   showMapButton,
   mapButtonActive,
   onToggleMap,
@@ -328,7 +399,12 @@ function MapHud({
   return (
     <div className="map-hud" aria-label="Интерфейс карты">
       <div className="map-hud__top-left">
-        <LocationBadge location={view.location} />
+        <LocationBadge
+          location={view.location}
+          showMapButton={showMapButton}
+          mapButtonActive={mapButtonActive}
+          onToggleMap={onToggleMap}
+        />
       </div>
 
       <div className="map-hud__top-right">
@@ -337,9 +413,6 @@ function MapHud({
 
       <div className="map-hud__bottom-left">
         <MapHudControls
-          showMapButton={showMapButton}
-          mapButtonActive={mapButtonActive}
-          onToggleMap={onToggleMap}
           showJournalButton={showJournalButton}
           journalButtonActive={journalButtonActive}
           onOpenJournal={onOpenJournal}
@@ -347,6 +420,8 @@ function MapHud({
         <div className="map-hud__squad-row">
           <SquadStatus
             squadHealth={view.squadHealth}
+            busy={busy}
+            onAction={onAction}
             onOpenSquad={onOpenSquad}
           />
           <PartyPanel party={view.party} />

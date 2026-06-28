@@ -1,14 +1,11 @@
 import React, { memo, useEffect, useMemo, useState } from 'react';
 import { Shield, Swords, X } from 'lucide-react';
+import { getHealthPercent, getHealthTone } from '../utils/healthTone.js';
 
 const COL_LABELS = ['Дальний слот', 'Ближний слот'];
 
 function formatHp(char) {
   return `${Math.round(char?.health || 0)}/${Math.round(char?.maxHealth || 0)}`;
-}
-
-function getHpPercent(char) {
-  return char?.maxHealth > 0 ? Math.max(0, Math.min(100, (char.health / char.maxHealth) * 100)) : 0;
 }
 
 function formatAttack(char) {
@@ -22,12 +19,33 @@ function getMaskLabel(mask) {
   return mask.tierRoman || mask.tier || '?';
 }
 
+function getAutoNormalMask(char) {
+  const masks = Array.isArray(char?.masks?.normal) ? char.masks.normal : [];
+  return masks.find((mask) => mask?.type !== 'echo' && mask?.canUse && mask?.action) || null;
+}
+
 function getRowLabel(row) {
   return `Ряд ${Number(row) + 1}`;
 }
 
 function getColLabel(col) {
   return COL_LABELS[col] || `Слот ${col + 1}`;
+}
+
+function getCurrentPresetCharIds(squad) {
+  const ids = new Set();
+
+  for (const row of squad?.board || []) {
+    for (const slot of row?.cols || []) {
+      if (slot?.charId) ids.add(String(slot.charId));
+    }
+  }
+
+  for (const char of squad?.chars || []) {
+    if (char?.placed) ids.add(String(char.id));
+  }
+
+  return ids;
 }
 
 function MaskPill({ mask, busy, onAction }) {
@@ -58,6 +76,41 @@ function CharacterMasks({ masks, busy, onAction }) {
       ))}
       {masks?.echo ? <MaskPill mask={masks.echo} busy={busy} onAction={onAction} /> : null}
     </div>
+  );
+}
+
+function MaskUpgradeArrow() {
+  return <span className="squad-card__mask-upgrade" aria-hidden="true" />;
+}
+
+function CharacterPortrait({ char, busy, onAction }) {
+  const maskUpgrade = getAutoNormalMask(char);
+  const canUpgrade = !!maskUpgrade?.action;
+  const content = (
+    <>
+      {char?.spriteUrl ? <img src={char.spriteUrl} alt="" draggable="false" /> : null}
+      {canUpgrade ? <MaskUpgradeArrow /> : null}
+      <div className="squad-card__tier">{char?.tierRoman}</div>
+    </>
+  );
+
+  if (!canUpgrade) {
+    return <div className="squad-card__portrait">{content}</div>;
+  }
+
+  return (
+    <button
+      className="squad-card__portrait has-mask-upgrade"
+      type="button"
+      disabled={busy}
+      title={`Применить маску: ${maskUpgrade.name}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        onAction(maskUpgrade.action);
+      }}
+    >
+      {content}
+    </button>
   );
 }
 
@@ -156,7 +209,8 @@ function SquadBoard({ squad, selectedSlot, busy, onSelectSlot, onAction }) {
               {row.cols.map((slot) => {
                 const char = slot.charId ? charsById.get(slot.charId) : null;
                 const selected = selectedSlot?.row === slot.row && selectedSlot?.col === slot.col;
-                const hpPct = getHpPercent(char);
+                const hpPct = getHealthPercent(char);
+                const hpTone = getHealthTone(char);
                 const reserveAction = char?.actions?.reserve || null;
                 const selectSlot = () => onSelectSlot(slot);
                 const handleSlotKeyDown = (event) => {
@@ -179,17 +233,14 @@ function SquadBoard({ squad, selectedSlot, busy, onSelectSlot, onAction }) {
 
                     {char ? (
                       <>
-                        <div className="squad-card__portrait">
-                          {char.spriteUrl ? <img src={char.spriteUrl} alt="" draggable="false" /> : null}
-                          <div className="squad-card__tier">{char.tierRoman}</div>
-                        </div>
+                        <CharacterPortrait char={char} busy={busy} onAction={onAction} />
 
                         <div className="squad-card__body">
                           <div className="squad-card__top">
                             <h3>{char.name}</h3>
                             <span>⭐ {char.level}{char.sharpness ? ` +${char.sharpness}` : ''}</span>
                           </div>
-                          <div className="squad-card__hp" title={formatHp(char)}>
+                          <div className={`squad-card__hp squad-card__hp--${hpTone}`} title={formatHp(char)}>
                             <i style={{ width: `${hpPct}%` }} />
                             <strong>{formatHp(char)}</strong>
                           </div>
@@ -241,7 +292,8 @@ function SquadBoard({ squad, selectedSlot, busy, onSelectSlot, onAction }) {
 }
 
 function SquadCard({ char, selectedSlot, busy, onAction }) {
-  const hpPct = char.maxHealth > 0 ? Math.max(0, Math.min(100, (char.health / char.maxHealth) * 100)) : 0;
+  const hpPct = getHealthPercent(char);
+  const hpTone = getHealthTone(char);
   const canPlace =
     selectedSlot &&
     (char.position?.row !== selectedSlot.row || char.position?.col !== selectedSlot.col);
@@ -253,10 +305,7 @@ function SquadCard({ char, selectedSlot, busy, onAction }) {
 
   return (
     <article className={`squad-card squad-card--${char.rarity || 'standard'}`}>
-      <div className="squad-card__portrait">
-        {char.spriteUrl ? <img src={char.spriteUrl} alt="" /> : null}
-        <div className="squad-card__tier">{char.tierRoman}</div>
-      </div>
+      <CharacterPortrait char={char} busy={busy} onAction={onAction} />
 
       <div className="squad-card__body">
         <div className="squad-card__top">
@@ -264,7 +313,7 @@ function SquadCard({ char, selectedSlot, busy, onAction }) {
           <span>⭐ {char.level}{char.sharpness ? ` +${char.sharpness}` : ''}</span>
         </div>
 
-        <div className="squad-card__hp" title={formatHp(char)}>
+        <div className={`squad-card__hp squad-card__hp--${hpTone}`} title={formatHp(char)}>
           <i style={{ width: `${hpPct}%` }} />
           <strong>{formatHp(char)}</strong>
         </div>
@@ -334,6 +383,10 @@ function RecruitCard({ recruit, busy, onAction }) {
 function SquadModal({ squad, visible = false, busy = false, onClose, onAction }) {
   const [selectedSlot, setSelectedSlot] = useState(null);
   const fragments = squad?.masks?.fragments ?? squad?.currencies?.fragments ?? 0;
+  const reserveChars = useMemo(() => {
+    const currentPresetCharIds = getCurrentPresetCharIds(squad);
+    return (squad?.chars || []).filter((char) => !currentPresetCharIds.has(String(char.id)));
+  }, [squad]);
 
   useEffect(() => {
     if (!visible) setSelectedSlot(null);
@@ -392,7 +445,7 @@ function SquadModal({ squad, visible = false, busy = false, onClose, onAction })
 
         <div className="squad-modal__content">
           <div className="squad-grid">
-            {(squad.chars || []).map((char) => (
+            {reserveChars.map((char) => (
               <SquadCard
                 key={char.id}
                 char={char}

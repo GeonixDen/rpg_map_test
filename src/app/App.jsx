@@ -296,6 +296,8 @@ export default function App() {
         player={serverPlayer}
         visible={!dialogModal && !battleModalVisible}
         onOpenSquad={handleOpenSquad}
+        busy={actionBusy}
+        onAction={handleUiAction}
         showMapButton={showMapViewToggle}
         mapButtonActive={isFullMap}
         onToggleMap={handleToggleMapView}

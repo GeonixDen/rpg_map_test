@@ -70,8 +70,8 @@ export const APP_CONFIG = {
     maxZoom: 96,
     distance: {
       default: 22,
-      min: 12,
-      max: 180,
+      min: 22,
+      max: 50,
       step: 1,
     },
     fit: {
