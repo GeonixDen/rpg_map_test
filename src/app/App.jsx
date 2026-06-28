@@ -1,15 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BookOpen, Map as MapIcon, UsersRound } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { APP_CONFIG } from '../config/appConfig.js';
 import MapScene from '../scene/MapScene.jsx';
 import { useMapDemoStore } from '../store/mapDemoStore.js';
-import { buildChunkModel, tileToWorld } from '../utils/mapModel.js';
+import { buildChunkModel, buildMapModel, tileToWorld } from '../utils/mapModel.js';
 import BattleModal from '../battle/BattleModal.jsx';
 import DialogModal from './DialogModal.jsx';
 import JournalModal from './JournalModal.jsx';
 import LoadingScreen from './LoadingScreen.jsx';
-import MapKeyboardPanel from './MapKeyboardPanel.jsx';
+import MapHud from './MapHud.jsx';
 import SquadModal from './SquadModal.jsx';
 import ToastStack from './ToastStack.jsx';
 
@@ -68,7 +67,6 @@ export default function App() {
     toasts,
     dialogModal,
     battlePresentation,
-    mapKeyboardRows,
     movementAnimation,
     selectedActionTile,
     live,
@@ -90,7 +88,6 @@ export default function App() {
       toasts: state.toasts,
       dialogModal: state.dialogModal,
       battlePresentation: state.battlePresentation,
-      mapKeyboardRows: state.mapKeyboardRows,
       movementAnimation: state.movementAnimation,
       selectedActionTile: state.selectedActionTile,
       live: state.live,
@@ -120,11 +117,13 @@ export default function App() {
   const exploration = liveOnSelectedMap?.exploration || null;
   const visibleTileSet = useMemo(() => createVisibleTileSet(exploration), [exploration]);
   const model = useMemo(
-    () => (selected ? buildChunkModel(selected.map) : null),
+    () => {
+      if (!selected) return null;
+      return APP_CONFIG.mapRenderer.type === 'shader' ? buildMapModel(selected.map) : buildChunkModel(selected.map);
+    },
     [selected],
   );
   const sceneReady = !!selected?.id && readySceneId === selected.id;
-  const liveUiType = String(liveOnSelectedMap?.uiState?.type || '').toLowerCase();
   const currentUiType = String(live.mapState?.uiState?.type || '').toLowerCase();
   const battleUiType = String(live.battleState?.uiState?.type || currentUiType).toLowerCase();
   const battleModalVisible = battleUiType === 'battle' || battleUiType === 'battleresult';
@@ -181,12 +180,7 @@ export default function App() {
       worldY: world.y,
     };
   }, [activeMovementAnimation, live.actionStatus, model, selected?.id, selectedActionTile]);
-  const visibleMapKeyboardRows =
-    liveOnSelectedMap && liveUiType === 'map' && !dialogModal && !battleModalVisible && cameraMode === 'follow'
-      ? mapKeyboardRows
-      : EMPTY_ARRAY;
   const showMapViewToggle = !!liveOnSelectedMap && !dialogModal && !battleModalVisible;
-  const showSquadToggle = !!squadState && !dialogModal && !battleModalVisible;
   const showJournalToggle = !!journalState && !dialogModal && !battleModalVisible;
   const isFullMap = cameraMode === 'full';
   const mapInteractionEnabled = cameraMode === 'follow' && !dialogModal && !battleModalVisible;
@@ -201,24 +195,19 @@ export default function App() {
   const handleSceneReady = useCallback((sceneId) => {
     setReadySceneId(sceneId);
   }, []);
-  const handleMapKeyboardAction = useCallback(
-    (action) => {
-      if (action === 'showSq') {
-        setSquadModalOpen(true);
-        setJournalModalOpen(false);
-        return null;
-      }
-
-      if (action === 'journal' || action === 'journalHints') {
-        setJournalModalOpen(true);
-        setSquadModalOpen(false);
-        return null;
-      }
-
-      return handleUiAction(action);
-    },
-    [handleUiAction],
-  );
+  const handleOpenSquad = useCallback(() => {
+    if (!squadState) return;
+    setSquadModalOpen(true);
+    setJournalModalOpen(false);
+  }, [squadState]);
+  const handleToggleMapView = useCallback(() => {
+    setCameraMode((mode) => (mode === 'full' ? 'follow' : 'full'));
+  }, []);
+  const handleOpenJournal = useCallback(() => {
+    if (!journalState) return;
+    setJournalModalOpen(true);
+    setSquadModalOpen(false);
+  }, [journalState]);
 
   useEffect(() => {
     if (dialogModal || battleModalVisible || !squadState) {
@@ -277,48 +266,6 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      {showMapViewToggle ? (
-        <button
-          className={`map-view-toggle ${isFullMap ? 'is-active' : ''}`}
-          type="button"
-          onClick={() => setCameraMode((mode) => (mode === 'full' ? 'follow' : 'full'))}
-          title={isFullMap ? 'Следовать за игроком' : 'Карта'}
-        >
-          <MapIcon size={15} />
-          <span>{isFullMap ? 'Игрок' : 'Карта'}</span>
-        </button>
-      ) : null}
-
-      {showSquadToggle ? (
-        <button
-          className={`squad-toggle ${squadModalOpen ? 'is-active' : ''}`}
-          type="button"
-          onClick={() => {
-            setSquadModalOpen(true);
-            setJournalModalOpen(false);
-          }}
-          title="Отряд"
-        >
-          <UsersRound size={15} />
-          <span>Отряд</span>
-        </button>
-      ) : null}
-
-      {showJournalToggle ? (
-        <button
-          className={`journal-toggle ${journalModalOpen ? 'is-active' : ''}`}
-          type="button"
-          onClick={() => {
-            setJournalModalOpen(true);
-            setSquadModalOpen(false);
-          }}
-          title="Журнал"
-        >
-          <BookOpen size={15} />
-          <span>Журнал</span>
-        </button>
-      ) : null}
-
       <MapScene
         map={selected.map}
         mapsDict={maps}
@@ -341,6 +288,20 @@ export default function App() {
         actors={actors}
         transitionLabelBlockers={liveLayers?.npcs || EMPTY_ARRAY}
         onSceneReady={handleSceneReady}
+      />
+      <MapHud
+        hud={liveOnSelectedMap?.hud}
+        mapEntry={selected}
+        squad={squadState}
+        player={serverPlayer}
+        visible={!dialogModal && !battleModalVisible}
+        onOpenSquad={handleOpenSquad}
+        showMapButton={showMapViewToggle}
+        mapButtonActive={isFullMap}
+        onToggleMap={handleToggleMapView}
+        showJournalButton={showJournalToggle}
+        journalButtonActive={journalModalOpen}
+        onOpenJournal={handleOpenJournal}
       />
       {mapTransitionKey === selected.id ? (
         <div
@@ -368,7 +329,7 @@ export default function App() {
       />
       <SquadModal
         squad={squadState}
-        visible={squadModalOpen && showSquadToggle}
+        visible={squadModalOpen && !!squadState && !dialogModal && !battleModalVisible}
         busy={actionBusy}
         onClose={() => setSquadModalOpen(false)}
         onAction={handleUiAction}
@@ -379,11 +340,6 @@ export default function App() {
         busy={actionBusy}
         onClose={() => setJournalModalOpen(false)}
         onAction={handleUiAction}
-      />
-      <MapKeyboardPanel
-        rows={visibleMapKeyboardRows}
-        busy={live.actionStatus === 'sending' || !!activeMovementAnimation}
-        onAction={handleMapKeyboardAction}
       />
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </main>

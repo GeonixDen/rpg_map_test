@@ -14,13 +14,14 @@ function getRendererDpr(gl) {
   return Number.isFinite(dpr) && dpr > 0 ? dpr : windowDpr || 1;
 }
 
-function snapZoomToTilePixels(zoom, cameraConfig, gl) {
+function snapZoomToTilePixels(zoom, cameraConfig, gl, { keepDistanceLimit = false } = {}) {
   const cfg = APP_CONFIG.pixelArt;
   if (!cfg?.enabled || !cfg.snapFollowZoom || zoom < cfg.minSnapZoom) return zoom;
 
   const dpr = getRendererDpr(gl);
   const tileSize = APP_CONFIG.tileAtlas.tileSize;
-  const scale = Math.max(1, Math.round((zoom * dpr) / tileSize));
+  const rawScale = (zoom * dpr) / tileSize;
+  const scale = Math.max(1, keepDistanceLimit ? Math.ceil(rawScale) : Math.round(rawScale));
   const snapped = (tileSize * scale) / dpr;
   return Math.max(cameraConfig.minZoom, Math.min(cameraConfig.maxZoom, snapped));
 }
@@ -43,9 +44,9 @@ function getFollowZoom(size, cameraConfig, gl) {
 
   const zoom = Math.max(
     cameraConfig.minZoom,
-    Math.min(cameraConfig.maxZoom, Math.min(size.width, size.height) / distance),
+    Math.min(cameraConfig.maxZoom, size.height / distance),
   );
-  return snapZoomToTilePixels(zoom, cameraConfig, gl);
+  return snapZoomToTilePixels(zoom, cameraConfig, gl, { keepDistanceLimit: true });
 }
 
 function getFitZoom(dimensions, size, cameraConfig) {

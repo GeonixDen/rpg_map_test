@@ -44,6 +44,13 @@ export const APP_CONFIG = {
     fallbackEmoji: '⬛',
   },
 
+  mapRenderer: {
+    type: 'shader',
+    tileMapCacheLimit: 6,
+    z: 0,
+    treeSway: true,
+  },
+
   renderer: {
     background: '#0b0d0e',
     dpr: [1, 2],
@@ -62,7 +69,7 @@ export const APP_CONFIG = {
     minZoom: 0.7,
     maxZoom: 96,
     distance: {
-      default: 20,
+      default: 22,
       min: 12,
       max: 180,
       step: 1,

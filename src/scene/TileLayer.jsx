@@ -8,6 +8,7 @@ import { chunksForRange, getVisibleChunkRange } from '../utils/mapModel.js';
 import MapFogLayer from './layers/MapFogLayer.jsx';
 import MapBounds from './layers/MapBounds.jsx';
 import OverviewLayer from './layers/OverviewLayer.jsx';
+import ShaderTileLayer from './layers/ShaderTileLayer.jsx';
 import TransitionLabelsLayer from './layers/TransitionLabelsLayer.jsx';
 import TileChunk from './layers/TileChunk.jsx';
 import { createTreeSwayMaterial, updateTreeSwayMaterial } from './materials/createTreeSwayMaterial.js';
@@ -22,6 +23,7 @@ export default function TileLayer({
   transitionLabelBlockers = [],
   onSceneReady,
 }) {
+  const useShaderTilemap = APP_CONFIG.mapRenderer.type === 'shader';
   const texture = useTexture(APP_CONFIG.data.tilesetUrl);
   const { camera, size } = useThree();
   const [range, setRange] = useState(null);
@@ -43,16 +45,21 @@ export default function TileLayer({
 
   const material = useMemo(
     () =>
-      new THREE.MeshBasicMaterial({
-        map: texture,
-        toneMapped: false,
-      }),
-    [texture],
+      useShaderTilemap
+        ? null
+        : new THREE.MeshBasicMaterial({
+            map: texture,
+            toneMapped: false,
+          }),
+    [texture, useShaderTilemap],
   );
-  const treeMaterial = useMemo(() => createTreeSwayMaterial(texture), [texture]);
+  const treeMaterial = useMemo(
+    () => (useShaderTilemap ? null : createTreeSwayMaterial(texture)),
+    [texture, useShaderTilemap],
+  );
 
-  useEffect(() => () => material.dispose(), [material]);
-  useEffect(() => () => treeMaterial.dispose(), [treeMaterial]);
+  useEffect(() => () => material?.dispose(), [material]);
+  useEffect(() => () => treeMaterial?.dispose(), [treeMaterial]);
 
   useEffect(() => {
     setRange(null);
@@ -63,6 +70,8 @@ export default function TileLayer({
   }, [model.id]);
 
   useFrame(({ clock }) => {
+    if (useShaderTilemap) return;
+
     const { lod } = APP_CONFIG;
     const nextMode = fogOfWarEnabled
       ? 'chunks'
@@ -90,7 +99,10 @@ export default function TileLayer({
     updateTreeSwayMaterial(treeMaterial, clock.elapsedTime);
   });
 
-  const visibleChunks = useMemo(() => chunksForRange(model, range), [model, range]);
+  const visibleChunks = useMemo(
+    () => (useShaderTilemap ? [] : chunksForRange(model, range)),
+    [model, range, useShaderTilemap],
+  );
   const visibleTreeInstances = useMemo(
     () =>
       visibleChunks.reduce(
@@ -118,7 +130,8 @@ export default function TileLayer({
   useEffect(() => {
     if (sceneReadyReportedRef.current || !onSceneReady || !texture.image) return undefined;
 
-    const hasRenderableTiles = mode === 'overview' || visibleChunks.length > 0 || model.chunks.length === 0;
+    const hasRenderableTiles =
+      useShaderTilemap || mode === 'overview' || visibleChunks.length > 0 || model.chunks.length === 0;
     if (!hasRenderableTiles) return undefined;
 
     const frameId = requestAnimationFrame(() => {
@@ -127,7 +140,7 @@ export default function TileLayer({
     });
 
     return () => cancelAnimationFrame(frameId);
-  }, [mode, model.chunks.length, model.id, onSceneReady, texture.image, visibleChunks.length]);
+  }, [mode, model.chunks.length, model.id, onSceneReady, texture.image, useShaderTilemap, visibleChunks.length]);
 
   return (
     <group>
@@ -136,22 +149,28 @@ export default function TileLayer({
         fogOfWarEnabled={fogOfWarEnabled}
         visibleTileKeys={visibleTileKeys}
       />
-      {!fogOfWarEnabled ? (
+      {useShaderTilemap ? (
+        <ShaderTileLayer map={map} model={model} atlasTexture={texture} />
+      ) : null}
+      {!useShaderTilemap && !fogOfWarEnabled ? (
         <OverviewLayer map={map} model={model} atlasImage={texture.image} visible={mode === 'overview'} />
       ) : null}
-      <a.group scale={spring.scale.to((value) => [value, value, 1])} visible={mode === 'chunks'}>
-        {visibleChunks.map((chunk) => (
-          <TileChunk
-            key={chunk.id}
-            chunk={chunk}
-            image={texture.image}
-            material={material}
-            treeMaterial={treeMaterial}
-            animateTreeSway={animateTreeSway}
-          />
-        ))}
+      <a.group scale={spring.scale.to((value) => [value, value, 1])} visible={!useShaderTilemap && mode === 'chunks'}>
+        {!useShaderTilemap
+          ? visibleChunks.map((chunk) => (
+              <TileChunk
+                key={chunk.id}
+                chunk={chunk}
+                image={texture.image}
+                material={material}
+                treeMaterial={treeMaterial}
+                animateTreeSway={animateTreeSway}
+              />
+            ))
+          : null}
         {!fogOfWarEnabled ? <MapBounds dimensions={model.dimensions} /> : null}
       </a.group>
+      {useShaderTilemap && !fogOfWarEnabled ? <MapBounds dimensions={model.dimensions} /> : null}
       <TransitionLabelsLayer
         map={map}
         mapsDict={mapsDict}

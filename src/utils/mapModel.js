@@ -31,6 +31,25 @@ export function worldToTile(x, y, dimensions) {
   };
 }
 
+export function buildMapModel(map) {
+  const dimensions = getMapDimensions(map);
+
+  return {
+    id: map?.id || map?.name || 'map',
+    visibilitySignature: 'full',
+    mapType: map?.type || 'default',
+    dimensions,
+    chunkSize: APP_CONFIG.mapModel.chunkSize,
+    chunks: [],
+    byCoord: new Map(),
+    maxChunkX: 0,
+    maxChunkY: 0,
+    tileCountByKey: new Map(),
+    unknownByEmoji: new Map(),
+    unknownCount: 0,
+  };
+}
+
 export function buildChunkModel(map, chunkSizeOrOptions = APP_CONFIG.mapModel.chunkSize, maybeOptions = {}) {
   const chunkSize = typeof chunkSizeOrOptions === 'number'
     ? chunkSizeOrOptions
