@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { BookOpen, Map as MapIcon, Route, SlidersHorizontal, UsersRound } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
+import { APP_CONFIG } from '../config/appConfig.js';
 import MapScene from '../scene/MapScene.jsx';
 import { useMapDemoStore } from '../store/mapDemoStore.js';
 import { buildChunkModel, tileToWorld } from '../utils/mapModel.js';
@@ -14,6 +15,41 @@ import ToastStack from './ToastStack.jsx';
 
 const EMPTY_ARRAY = Object.freeze([]);
 const EMPTY_OBJECT = Object.freeze({});
+
+function getTileKey(x, y) {
+  return `${Number(x)},${Number(y)}`;
+}
+
+function createVisibleTileSet(exploration) {
+  if (!exploration?.fogEnabled) return null;
+
+  const tiles = Array.isArray(exploration.visibleTiles) ? exploration.visibleTiles : [];
+  const set = new Set();
+
+  for (const tile of tiles) {
+    const x = Array.isArray(tile) ? Number(tile[0]) : Number(tile?.x);
+    const y = Array.isArray(tile) ? Number(tile[1]) : Number(tile?.y);
+    if (Number.isFinite(x) && Number.isFinite(y)) set.add(getTileKey(x, y));
+  }
+
+  return set;
+}
+
+function filterEntitiesByVisibility(entities, visibleTileSet) {
+  if (!visibleTileSet) return Array.isArray(entities) ? entities : EMPTY_ARRAY;
+
+  return (Array.isArray(entities) ? entities : []).filter((entity) => {
+    const x = Number(entity?.x);
+    const y = Number(entity?.y);
+    return Number.isFinite(x) && Number.isFinite(y) && visibleTileSet.has(getTileKey(x, y));
+  });
+}
+
+function filterActionsByVisibility(actionsByTile, visibleTileSet) {
+  if (!visibleTileSet || !actionsByTile || typeof actionsByTile !== 'object') return actionsByTile || EMPTY_OBJECT;
+
+  return Object.fromEntries(Object.entries(actionsByTile).filter(([tileKey]) => visibleTileSet.has(tileKey)));
+}
 
 function DemoPanels({
   selected,
@@ -157,8 +193,13 @@ export default function App() {
 
   const selectedIndex = Math.max(0, mapEntries.findIndex((entry) => entry.id === selectedId));
   const selected = mapEntries[selectedIndex] || null;
-  const model = useMemo(() => (selected ? buildChunkModel(selected.map) : null), [selected]);
   const liveOnSelectedMap = live.mapState?.ok && live.mapState.mapId === selected?.id ? live.mapState : null;
+  const exploration = liveOnSelectedMap?.exploration || null;
+  const visibleTileSet = useMemo(() => createVisibleTileSet(exploration), [exploration]);
+  const model = useMemo(
+    () => (selected ? buildChunkModel(selected.map) : null),
+    [selected],
+  );
   const liveUiType = String(liveOnSelectedMap?.uiState?.type || '').toLowerCase();
   const currentUiType = String(live.mapState?.uiState?.type || '').toLowerCase();
   const battleUiType = String(live.battleState?.uiState?.type || currentUiType).toLowerCase();
@@ -168,8 +209,24 @@ export default function App() {
   const journalState = liveOnSelectedMap?.journal || null;
   const questGuide = journalState?.guide || null;
   const activeMovementAnimation = movementAnimation?.mapId === selected?.id ? movementAnimation : null;
-  const liveLayers = liveOnSelectedMap?.layers;
-  const actionsByTile = liveOnSelectedMap?.actionsByTile || EMPTY_OBJECT;
+  const sourceLiveLayers = liveOnSelectedMap?.layers;
+  const liveLayers = useMemo(() => {
+    if (!sourceLiveLayers) return null;
+    if (!visibleTileSet) return sourceLiveLayers;
+
+    return {
+      otherPlayers: filterEntitiesByVisibility(sourceLiveLayers.otherPlayers, visibleTileSet),
+      npcs: filterEntitiesByVisibility(sourceLiveLayers.npcs, visibleTileSet),
+      enemies: filterEntitiesByVisibility(sourceLiveLayers.enemies, visibleTileSet),
+      consumables: filterEntitiesByVisibility(sourceLiveLayers.consumables, visibleTileSet),
+      huntTiles: filterEntitiesByVisibility(sourceLiveLayers.huntTiles, visibleTileSet),
+      transitions: filterEntitiesByVisibility(sourceLiveLayers.transitions, visibleTileSet),
+    };
+  }, [sourceLiveLayers, visibleTileSet]);
+  const actionsByTile = useMemo(
+    () => filterActionsByVisibility(liveOnSelectedMap?.actionsByTile, visibleTileSet),
+    [liveOnSelectedMap?.actionsByTile, visibleTileSet],
+  );
   const otherPlayers = liveLayers?.otherPlayers || EMPTY_ARRAY;
   const actors = useMemo(() => {
     if (!liveOnSelectedMap) return EMPTY_ARRAY;
@@ -333,6 +390,9 @@ export default function App() {
         model={model}
         cameraMode={cameraMode}
         showTransitionLabels={showTransitionLabels}
+        fogOfWarEnabled={!!exploration?.fogEnabled}
+        visibleTileKeys={visibleTileSet}
+        visibleTileBounds={exploration?.bounds || null}
         interactionEnabled={mapInteractionEnabled}
         lockedHoverTile={lockedHoverTile}
         hoverLayers={liveLayers}
@@ -344,7 +404,17 @@ export default function App() {
         onTileClick={handleTileClick}
         otherPlayers={otherPlayers}
         actors={actors}
+        transitionLabelBlockers={liveLayers?.npcs || EMPTY_ARRAY}
         onRenderStats={setRenderStats}
+      />
+      <div
+        key={`map-transition:${selected.id}`}
+        className="map-scene-transition"
+        aria-hidden="true"
+        style={{
+          '--map-transition-bg': APP_CONFIG.mapTransition.background,
+          '--map-transition-ms': `${APP_CONFIG.mapTransition.fadeMs}ms`,
+        }}
       />
       <DialogModal
         dialog={battleModalVisible ? null : dialogModal}

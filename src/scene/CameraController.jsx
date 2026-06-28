@@ -60,12 +60,51 @@ function getFitZoom(dimensions, size, cameraConfig) {
   );
 }
 
+function getFitView(dimensions, size, cameraConfig, fitBounds = null) {
+  if (!fitBounds) {
+    return {
+      center: new Vector3(0, 0, 0),
+      zoom: getFitZoom(dimensions, size, cameraConfig),
+    };
+  }
+
+  const minX = Number(fitBounds.minX);
+  const minY = Number(fitBounds.minY);
+  const maxX = Number(fitBounds.maxX);
+  const maxY = Number(fitBounds.maxY);
+  if (
+    !Number.isFinite(minX) ||
+    !Number.isFinite(minY) ||
+    !Number.isFinite(maxX) ||
+    !Number.isFinite(maxY) ||
+    maxX < minX ||
+    maxY < minY
+  ) {
+    return {
+      center: new Vector3(0, 0, 0),
+      zoom: getFitZoom(dimensions, size, cameraConfig),
+    };
+  }
+
+  const fitDimensions = {
+    cols: Math.max(1, maxX - minX + 1),
+    rows: Math.max(1, maxY - minY + 1),
+  };
+  const centerX = (minX + maxX + 1) / 2 - dimensions.cols / 2;
+  const centerY = dimensions.rows / 2 - (minY + maxY + 1) / 2;
+
+  return {
+    center: new Vector3(centerX, centerY, 0),
+    zoom: getFitZoom(fitDimensions, size, cameraConfig),
+  };
+}
+
 function getFollowWorldPoint(followWorldRef) {
   const world = followWorldRef?.current;
   return Number.isFinite(world?.worldX) && Number.isFinite(world?.worldY) ? world : null;
 }
 
-export default function CameraController({ dimensions, mode = 'follow', followWorldRef }) {
+export default function CameraController({ dimensions, mode = 'follow', followWorldRef, fitBounds = null }) {
   const controlsRef = useRef(null);
   const flyToRef = useRef(null);
   const [controlsReady, setControlsReady] = useState(false);
@@ -95,13 +134,14 @@ export default function CameraController({ dimensions, mode = 'follow', followWo
 
   useEffect(() => {
     if (isFullMap) {
-      const zoom = getFitZoom(dimensions, size, cameraConfig);
+      const fitView = getFitView(dimensions, size, cameraConfig, fitBounds);
+      const zoom = fitView.zoom;
       if (zoom == null) return;
 
       setControlsReady(false);
       startCameraFlight({
-        endPosition: new Vector3(0, 0, cameraConfig.positionZ),
-        endTarget: new Vector3(0, 0, 0),
+        endPosition: new Vector3(fitView.center.x, fitView.center.y, cameraConfig.positionZ),
+        endTarget: fitView.center,
         endZoom: zoom,
         durationScale: 1.35,
         enableControlsOnDone: true,
@@ -111,7 +151,7 @@ export default function CameraController({ dimensions, mode = 'follow', followWo
 
     setControlsReady(false);
     flyToRef.current = null;
-  }, [cameraConfig, dimensions, isFullMap, size, startCameraFlight]);
+  }, [cameraConfig, dimensions, fitBounds, isFullMap, size, startCameraFlight]);
 
   useFrame((_, delta) => {
     const flight = flyToRef.current;

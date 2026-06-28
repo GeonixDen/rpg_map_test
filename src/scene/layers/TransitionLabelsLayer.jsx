@@ -7,6 +7,22 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function tileKey(x, y) {
+  return `${Number(x)},${Number(y)}`;
+}
+
+function createBlockedTileSet(blockedTiles) {
+  const set = new Set();
+
+  for (const tile of Array.isArray(blockedTiles) ? blockedTiles : []) {
+    const x = Number(tile?.x);
+    const y = Number(tile?.y);
+    if (Number.isFinite(x) && Number.isFinite(y)) set.add(tileKey(x, y));
+  }
+
+  return set;
+}
+
 function TransitionBadge({ label, dimensions }) {
   const badge = useMemo(() => createTransitionBadgeTexture(label.name), [label.name]);
   const cfg = APP_CONFIG.transitionLabels;
@@ -39,16 +55,31 @@ function TransitionBadge({ label, dimensions }) {
   );
 }
 
-export default function TransitionLabelsLayer({ map, mapsDict, dimensions, visible }) {
+export default function TransitionLabelsLayer({
+  map,
+  mapsDict,
+  dimensions,
+  visible,
+  visibleTileKeys = null,
+  blockedTiles = [],
+}) {
+  const blockedTileKeys = useMemo(() => createBlockedTileSet(blockedTiles), [blockedTiles]);
   const labels = useMemo(
-    () =>
-      buildTransitionLabels({
+    () => {
+      const allLabels = buildTransitionLabels({
         map,
         mapsDict,
         dimensions,
         lang: APP_CONFIG.transitionLabels.locale,
-      }),
-    [dimensions, map, mapsDict],
+      });
+
+      return allLabels.filter((label) => {
+        const key = tileKey(label.x, label.y);
+        if (blockedTileKeys.has(key)) return false;
+        return !visibleTileKeys || visibleTileKeys.has(key);
+      });
+    },
+    [blockedTileKeys, dimensions, map, mapsDict, visibleTileKeys],
   );
 
   if (!visible || labels.length === 0) return null;

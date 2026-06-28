@@ -5,14 +5,23 @@ import { a, useSpring } from '@react-spring/three';
 import * as THREE from 'three';
 import { APP_CONFIG } from '../config/appConfig.js';
 import { chunksForRange, getVisibleChunkRange } from '../utils/mapModel.js';
-import MapEdgeFog from './layers/MapEdgeFog.jsx';
+import MapFogLayer from './layers/MapFogLayer.jsx';
 import MapBounds from './layers/MapBounds.jsx';
 import OverviewLayer from './layers/OverviewLayer.jsx';
 import TransitionLabelsLayer from './layers/TransitionLabelsLayer.jsx';
 import TileChunk from './layers/TileChunk.jsx';
 import { createTreeSwayMaterial, updateTreeSwayMaterial } from './materials/createTreeSwayMaterial.js';
 
-export default function TileLayer({ map, mapsDict, model, showTransitionLabels, onRenderStats }) {
+export default function TileLayer({
+  map,
+  mapsDict,
+  model,
+  showTransitionLabels,
+  fogOfWarEnabled = false,
+  visibleTileKeys = null,
+  transitionLabelBlockers = [],
+  onRenderStats,
+}) {
   const texture = useTexture(APP_CONFIG.data.tilesetUrl);
   const { camera, size } = useThree();
   const [range, setRange] = useState(null);
@@ -49,12 +58,13 @@ export default function TileLayer({ map, mapsDict, model, showTransitionLabels, 
     setMode('chunks');
     lastRangeKeyRef.current = '';
     lastModeRef.current = 'chunks';
-  }, [model]);
+  }, [model.id]);
 
   useFrame(({ clock }) => {
     const { lod } = APP_CONFIG;
-    const nextMode =
-      lastModeRef.current === 'overview'
+    const nextMode = fogOfWarEnabled
+      ? 'chunks'
+      : lastModeRef.current === 'overview'
         ? camera.zoom < lod.overviewExitZoom
           ? 'overview'
           : 'chunks'
@@ -113,7 +123,14 @@ export default function TileLayer({ map, mapsDict, model, showTransitionLabels, 
 
   return (
     <group>
-      <OverviewLayer map={map} model={model} atlasImage={texture.image} visible={mode === 'overview'} />
+      <MapFogLayer
+        dimensions={model.dimensions}
+        fogOfWarEnabled={fogOfWarEnabled}
+        visibleTileKeys={visibleTileKeys}
+      />
+      {!fogOfWarEnabled ? (
+        <OverviewLayer map={map} model={model} atlasImage={texture.image} visible={mode === 'overview'} />
+      ) : null}
       <a.group scale={spring.scale.to((value) => [value, value, 1])} visible={mode === 'chunks'}>
         {visibleChunks.map((chunk) => (
           <TileChunk
@@ -125,10 +142,16 @@ export default function TileLayer({ map, mapsDict, model, showTransitionLabels, 
             animateTreeSway={animateTreeSway}
           />
         ))}
-        <MapBounds dimensions={model.dimensions} />
+        {!fogOfWarEnabled ? <MapBounds dimensions={model.dimensions} /> : null}
       </a.group>
-      <MapEdgeFog dimensions={model.dimensions} />
-      <TransitionLabelsLayer map={map} mapsDict={mapsDict} dimensions={model.dimensions} visible={showTransitionLabels} />
+      <TransitionLabelsLayer
+        map={map}
+        mapsDict={mapsDict}
+        dimensions={model.dimensions}
+        visible={showTransitionLabels}
+        visibleTileKeys={visibleTileKeys}
+        blockedTiles={transitionLabelBlockers}
+      />
     </group>
   );
 }

@@ -27,6 +27,7 @@ export default function InteractionLayer({
   lockedTile = null,
   actionsByTile = {},
   hoverLayers = null,
+  visibleTileKeys = null,
   onTileClick,
 }) {
   const [hoverTile, setHoverTile] = useState(null);
@@ -56,6 +57,8 @@ export default function InteractionLayer({
   const getTileHoverType = useCallback(
     (x, y) => {
       const key = tileKey(x, y);
+      if (visibleTileKeys && !visibleTileKeys.has(key)) return 'hidden';
+
       const actionKind = actionsByTile?.[key]?.kind;
 
       if (TRANSITION_INTERACTION_KINDS.has(actionKind) || hoverIndex.transitionTiles.has(key)) {
@@ -73,7 +76,7 @@ export default function InteractionLayer({
       if (ROAD_TILE_EMOJIS.has(emoji)) return 'road';
       return 'none';
     },
-    [actionsByTile, hoverIndex, map, transitionEmojiSet],
+    [actionsByTile, hoverIndex, map, transitionEmojiSet, visibleTileKeys],
   );
 
   const decorateTile = useCallback(
@@ -94,6 +97,7 @@ export default function InteractionLayer({
       const row = Array.isArray(map?.layout?.[tile.y]) ? map.layout[tile.y] : null;
 
       if (!row || tile.x < 0 || tile.x >= row.length) return null;
+      if (visibleTileKeys && !visibleTileKeys.has(tileKey(tile.x, tile.y))) return null;
 
       const world = tileToWorld(tile.x, tile.y, dimensions);
       return decorateTile({
@@ -103,7 +107,7 @@ export default function InteractionLayer({
         worldY: world.y,
       });
     },
-    [decorateTile, dimensions, map],
+    [decorateTile, dimensions, map, visibleTileKeys],
   );
   const visibleTile = useMemo(() => (lockedTile ? decorateTile(lockedTile) : hoverTile), [decorateTile, hoverTile, lockedTile]);
 

@@ -31,7 +31,14 @@ export function worldToTile(x, y, dimensions) {
   };
 }
 
-export function buildChunkModel(map, chunkSize = APP_CONFIG.mapModel.chunkSize) {
+export function buildChunkModel(map, chunkSizeOrOptions = APP_CONFIG.mapModel.chunkSize, maybeOptions = {}) {
+  const chunkSize = typeof chunkSizeOrOptions === 'number'
+    ? chunkSizeOrOptions
+    : Number(chunkSizeOrOptions?.chunkSize) || APP_CONFIG.mapModel.chunkSize;
+  const options = typeof chunkSizeOrOptions === 'object' && chunkSizeOrOptions !== null
+    ? chunkSizeOrOptions
+    : maybeOptions;
+  const visibleTileKeys = options?.visibleTileKeys || null;
   const dimensions = getMapDimensions(map);
   const layout = Array.isArray(map?.layout) ? map.layout : [];
   const mapType = map?.type || 'default';
@@ -45,6 +52,8 @@ export function buildChunkModel(map, chunkSize = APP_CONFIG.mapModel.chunkSize) 
     const row = Array.isArray(layout[y]) ? layout[y] : [];
 
     for (let x = 0; x < row.length; x += 1) {
+      if (visibleTileKeys && !visibleTileKeys.has(`${x},${y}`)) continue;
+
       const emoji = normalizeEmoji(row[x]);
       let coords = resolveEmojiTile(emoji, x, y, mapType);
 
@@ -116,6 +125,7 @@ export function buildChunkModel(map, chunkSize = APP_CONFIG.mapModel.chunkSize) 
 
   return {
     id: map?.id || map?.name || 'map',
+    visibilitySignature: options?.visibilitySignature || 'full',
     mapType,
     dimensions,
     chunkSize,

@@ -178,12 +178,12 @@ export const APP_CONFIG = {
     },
   },
 
-  edgeFog: {
-    enabled: true,
-    innerFadeTiles: 2,
-    outerFadeTiles: 10,
-    z: 0.18,
-    opacity: 1,
+  mapTransition: {
+    fadeMs: 720,
+    background: 'rgba(11, 13, 14, 0.88)',
+  },
+
+  fog: {
     color: '#0b0d0e',
     mistColor: '#c8e4e1',
     animation: {
@@ -193,6 +193,29 @@ export const APP_CONFIG = {
       driftScale: 0.38,
       mistStrength: 0.24,
     },
+  },
+
+  edgeFog: {
+    enabled: true,
+    innerFadeTiles: 2,
+    outerFadeTiles: 10,
+    z: 0.18,
+    opacity: 1,
+  },
+
+  fogOfWar: {
+    enabled: true,
+    z: 0.19,
+    renderOrder: 255,
+    opacity: 0.98,
+    maxMaskTextureSize: 1536,
+    fadeTiles: 2,
+    edgeClearMin: 0.52,
+    edgeSoftness: 0.48,
+    noiseStrength: 0.12,
+    revealSpeed: 1.35,
+    fadeInSpeed: 4.5,
+    fadeOutSpeed: 1.15,
   },
 
   treeSway: {

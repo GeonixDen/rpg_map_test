@@ -19,6 +19,9 @@ function MapScene({
   model,
   cameraMode,
   showTransitionLabels,
+  fogOfWarEnabled = false,
+  visibleTileKeys = null,
+  visibleTileBounds = null,
   interactionEnabled = true,
   lockedHoverTile,
   hoverLayers,
@@ -32,6 +35,7 @@ function MapScene({
   mapsDict,
   otherPlayers = [],
   actors = [],
+  transitionLabelBlockers = [],
 }) {
   const { renderer, camera } = APP_CONFIG;
   const playerWorldRef = useRef(null);
@@ -64,6 +68,9 @@ function MapScene({
           mapsDict={mapsDict}
           model={model}
           showTransitionLabels={showTransitionLabels}
+          fogOfWarEnabled={fogOfWarEnabled}
+          visibleTileKeys={visibleTileKeys}
+          transitionLabelBlockers={transitionLabelBlockers}
           onRenderStats={onRenderStats}
         />
         <DynamicEntitiesLayer
@@ -102,6 +109,7 @@ function MapScene({
           lockedTile={lockedHoverTile}
           hoverLayers={hoverLayers}
           actionsByTile={actionsByTile}
+          visibleTileKeys={visibleTileKeys}
           onTileClick={onTileClick}
         />
       </Suspense>
@@ -109,6 +117,7 @@ function MapScene({
         dimensions={model.dimensions}
         mode={cameraMode}
         followWorldRef={playerWorldRef}
+        fitBounds={fogOfWarEnabled ? visibleTileBounds : null}
       />
     </Canvas>
   );

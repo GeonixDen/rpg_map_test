@@ -42,6 +42,31 @@ input {
   image-rendering: pixelated;
 }
 
+.map-scene-transition {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  pointer-events: none;
+  background: var(--map-transition-bg, rgba(11, 13, 14, 0.88));
+  animation: map-scene-transition var(--map-transition-ms, 720ms) ease-out forwards;
+  will-change: opacity;
+}
+
+@keyframes map-scene-transition {
+  0% {
+    opacity: 1;
+  }
+
+  45% {
+    opacity: 0.46;
+  }
+
+  100% {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
 .map-toolbar {
   position: absolute;
   z-index: 10;
