@@ -256,6 +256,32 @@ export const APP_CONFIG = {
     trunkAnchor: -0.24,
   },
 
+  tileFluid: {
+    enabled: true,
+    tiles: [
+      { coords: [5, 10], type: 'water' },
+      { coords: [6, 10], type: 'lava' },
+    ],
+    water: {
+      flowX: 0.06,       // скорость потока по горизонтали (+ = вправо)
+      flowY: 0.0,        // скорость потока по вертикали
+      speed: 0.12,       // скорость поверхностной ряби
+      amplitudeX: 0.03,  // амплитуда ряби по X
+      amplitudeY: 0.02,  // амплитуда ряби по Y
+      phaseScale: 0.62,
+    },
+    lava: {
+      flowX: 0.06,       // медленнее — лава густая
+      flowY: 0.0,
+      speed: 0.08,
+      amplitudeX: 0.025,
+      amplitudeY: 0.03,
+      phaseScale: 0.44,
+    },
+  },
+
+
+
   battle: {
     boss: {
       sceneWidth: 300,

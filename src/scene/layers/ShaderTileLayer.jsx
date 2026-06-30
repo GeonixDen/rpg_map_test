@@ -23,6 +23,8 @@ const fragmentShader = `
   uniform float uGap;
   uniform float uMargin;
   uniform float uUvInset;
+
+  // treeSway
   uniform float uTreeSwayEnabled;
   uniform float uSwayTime;
   uniform float uSwayAmplitude;
@@ -30,6 +32,22 @@ const fragmentShader = `
   uniform float uSwaySpeed;
   uniform float uSwayPhaseScale;
   uniform float uSwayAnchor;
+
+  // fluid (water / lava)
+  uniform float uFluidEnabled;
+  uniform float uFluidTime;
+  uniform float uWaterSpeed;
+  uniform float uWaterAmplitudeX;
+  uniform float uWaterAmplitudeY;
+  uniform float uWaterPhaseScale;
+  uniform float uWaterFlowX;
+  uniform float uWaterFlowY;
+  uniform float uLavaSpeed;
+  uniform float uLavaAmplitudeX;
+  uniform float uLavaAmplitudeY;
+  uniform float uLavaPhaseScale;
+  uniform float uLavaFlowX;
+  uniform float uLavaFlowY;
 
   varying vec2 vWorld;
 
@@ -53,7 +71,10 @@ const fragmentShader = `
     vec2 atlasTile = floor(tileData.rg * 255.0 + 0.5);
     vec2 local = fract(tile);
 
-    if (uTreeSwayEnabled > 0.5 && tileData.b > 0.5) {
+    float animFlag = tileData.b * 255.0;
+
+    // treeSway — B channel ~255
+    if (uTreeSwayEnabled > 0.5 && animFlag > 200.0) {
       float localFromBottom = 1.0 - local.y;
       float anchor = clamp(uSwayAnchor + 0.5, 0.0, 0.95);
       float swayMask = smoothstep(anchor, 1.0, localFromBottom);
@@ -63,6 +84,36 @@ const fragmentShader = `
 
       local.x = clamp(local.x - wave * uSwayAmplitude * swayMask, 0.0, 1.0);
       local.y = clamp(local.y + abs(wave) * uSwayLift * swayMask, 0.0, 1.0);
+    }
+
+    // water — B channel ~128 (between 100 and 200)
+    else if (uFluidEnabled > 0.5 && animFlag > 100.0 && animFlag < 200.0) {
+      float phase = dot(tileIndex, vec2(1.0, 1.37)) * uWaterPhaseScale + hashTile(tileIndex) * 6.283185;
+      float t = uFluidTime;
+      // primary scroll — fract wraps seamlessly across tile edges
+      float scrollX = fract(local.x + t * uWaterFlowX);
+      float scrollY = fract(local.y + t * uWaterFlowY);
+      // surface ripple on perpendicular axis
+      float rippleX = sin(t * uWaterSpeed + local.y * 6.2832 + phase) * uWaterAmplitudeX;
+      float rippleY = cos(t * uWaterSpeed * 0.83 + local.x * 6.2832 + phase) * uWaterAmplitudeY;
+
+      local.x = fract(scrollX + rippleX);
+      local.y = fract(scrollY + rippleY);
+    }
+
+    // lava — B channel ~64 (between 32 and 100)
+    else if (uFluidEnabled > 0.5 && animFlag > 32.0 && animFlag < 100.0) {
+      float phase = dot(tileIndex, vec2(1.0, 1.37)) * uLavaPhaseScale + hashTile(tileIndex) * 6.283185;
+      float t = uFluidTime;
+      // primary scroll
+      float scrollX = fract(local.x + t * uLavaFlowX);
+      float scrollY = fract(local.y + t * uLavaFlowY);
+      // slow heavy bulge
+      float rippleX = sin(t * uLavaSpeed + local.y * 4.712 + phase) * uLavaAmplitudeX;
+      float rippleY = cos(t * uLavaSpeed * 0.67 + local.x * 4.712 + phase) * uLavaAmplitudeY;
+
+      local.x = fract(scrollX + rippleX);
+      local.y = fract(scrollY + rippleY);
     }
 
     vec2 sourcePx = vec2(
@@ -83,6 +134,7 @@ export default function ShaderTileLayer({ map, model, atlasTexture }) {
   const cfg = APP_CONFIG.mapRenderer;
   const atlas = APP_CONFIG.tileAtlas;
   const tree = APP_CONFIG.treeSway;
+  const fluid = APP_CONFIG.tileFluid;
   const tileMapTexture = useMemo(
     () => getTileMapTexture(map, model.dimensions),
     [map, model.dimensions],
@@ -101,6 +153,7 @@ export default function ShaderTileLayer({ map, model, atlasTexture }) {
           uGap: { value: atlas.gap },
           uMargin: { value: atlas.margin },
           uUvInset: { value: atlas.uvInset },
+          // treeSway
           uTreeSwayEnabled: { value: cfg.treeSway && tree.enabled ? 1 : 0 },
           uSwayTime: { value: 0 },
           uSwayAmplitude: { value: tree.amplitudeTiles },
@@ -108,6 +161,21 @@ export default function ShaderTileLayer({ map, model, atlasTexture }) {
           uSwaySpeed: { value: tree.speed },
           uSwayPhaseScale: { value: tree.phaseScale },
           uSwayAnchor: { value: tree.trunkAnchor },
+          // fluid
+          uFluidEnabled: { value: fluid?.enabled ? 1 : 0 },
+          uFluidTime: { value: 0 },
+          uWaterSpeed: { value: fluid?.water?.speed ?? 0.12 },
+          uWaterAmplitudeX: { value: fluid?.water?.amplitudeX ?? 0.03 },
+          uWaterAmplitudeY: { value: fluid?.water?.amplitudeY ?? 0.02 },
+          uWaterPhaseScale: { value: fluid?.water?.phaseScale ?? 0.62 },
+          uWaterFlowX: { value: fluid?.water?.flowX ?? 0.18 },
+          uWaterFlowY: { value: fluid?.water?.flowY ?? 0.0 },
+          uLavaSpeed: { value: fluid?.lava?.speed ?? 0.08 },
+          uLavaAmplitudeX: { value: fluid?.lava?.amplitudeX ?? 0.025 },
+          uLavaAmplitudeY: { value: fluid?.lava?.amplitudeY ?? 0.03 },
+          uLavaPhaseScale: { value: fluid?.lava?.phaseScale ?? 0.44 },
+          uLavaFlowX: { value: fluid?.lava?.flowX ?? 0.06 },
+          uLavaFlowY: { value: fluid?.lava?.flowY ?? 0.0 },
         },
         vertexShader,
         fragmentShader,
@@ -115,6 +183,7 @@ export default function ShaderTileLayer({ map, model, atlasTexture }) {
         depthWrite: false,
         toneMapped: false,
       }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [atlas.gap, atlas.margin, atlas.tileSize, atlas.uvInset, atlasTexture, cfg.treeSway, model.dimensions, tileMapTexture, tree],
   );
 
@@ -133,7 +202,20 @@ export default function ShaderTileLayer({ map, model, atlasTexture }) {
     material.uniforms.uSwaySpeed.value = tree.speed;
     material.uniforms.uSwayPhaseScale.value = tree.phaseScale;
     material.uniforms.uSwayAnchor.value = tree.trunkAnchor;
-  }, [atlas, atlasTexture, cfg.treeSway, material, model.dimensions, tileMapTexture, tree]);
+    material.uniforms.uFluidEnabled.value = fluid?.enabled ? 1 : 0;
+    material.uniforms.uWaterSpeed.value = fluid?.water?.speed ?? 0.12;
+    material.uniforms.uWaterAmplitudeX.value = fluid?.water?.amplitudeX ?? 0.03;
+    material.uniforms.uWaterAmplitudeY.value = fluid?.water?.amplitudeY ?? 0.02;
+    material.uniforms.uWaterPhaseScale.value = fluid?.water?.phaseScale ?? 0.62;
+    material.uniforms.uWaterFlowX.value = fluid?.water?.flowX ?? 0.18;
+    material.uniforms.uWaterFlowY.value = fluid?.water?.flowY ?? 0.0;
+    material.uniforms.uLavaSpeed.value = fluid?.lava?.speed ?? 0.08;
+    material.uniforms.uLavaAmplitudeX.value = fluid?.lava?.amplitudeX ?? 0.025;
+    material.uniforms.uLavaAmplitudeY.value = fluid?.lava?.amplitudeY ?? 0.03;
+    material.uniforms.uLavaPhaseScale.value = fluid?.lava?.phaseScale ?? 0.44;
+    material.uniforms.uLavaFlowX.value = fluid?.lava?.flowX ?? 0.06;
+    material.uniforms.uLavaFlowY.value = fluid?.lava?.flowY ?? 0.0;
+  }, [atlas, atlasTexture, cfg.treeSway, fluid, material, model.dimensions, tileMapTexture, tree]);
 
   useEffect(
     () => () => {
@@ -143,8 +225,28 @@ export default function ShaderTileLayer({ map, model, atlasTexture }) {
   );
 
   useFrame(({ clock }) => {
+    const t = clock.elapsedTime;
     if (cfg.treeSway && tree.enabled) {
-      material.uniforms.uSwayTime.value = clock.elapsedTime;
+      material.uniforms.uSwayTime.value = t;
+    }
+    if (APP_CONFIG.tileFluid?.enabled) {
+      const w = APP_CONFIG.tileFluid.water || {};
+      const l = APP_CONFIG.tileFluid.lava || {};
+      const u = material.uniforms;
+      u.uFluidTime.value = t;
+      u.uFluidEnabled.value = 1;
+      u.uWaterFlowX.value = w.flowX ?? 0.18;
+      u.uWaterFlowY.value = w.flowY ?? 0.0;
+      u.uWaterSpeed.value = w.speed ?? 0.12;
+      u.uWaterAmplitudeX.value = w.amplitudeX ?? 0.03;
+      u.uWaterAmplitudeY.value = w.amplitudeY ?? 0.02;
+      u.uWaterPhaseScale.value = w.phaseScale ?? 0.62;
+      u.uLavaFlowX.value = l.flowX ?? 0.06;
+      u.uLavaFlowY.value = l.flowY ?? 0.0;
+      u.uLavaSpeed.value = l.speed ?? 0.08;
+      u.uLavaAmplitudeX.value = l.amplitudeX ?? 0.025;
+      u.uLavaAmplitudeY.value = l.amplitudeY ?? 0.03;
+      u.uLavaPhaseScale.value = l.phaseScale ?? 0.44;
     }
   });
 

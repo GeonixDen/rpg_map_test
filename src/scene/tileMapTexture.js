@@ -39,6 +39,9 @@ function createTileMapTexture(map, dimensions, config = APP_CONFIG) {
   const mapType = map?.type || 'default';
   const fallback = resolveEmojiTile(config.mapModel.fallbackEmoji, 0, 0, mapType) || [0, 10];
   const treeSwayTileKeys = new Set((config.treeSway.tileCoords || []).map(([tx, ty]) => `${tx},${ty}`));
+  const fluidTiles = config.tileFluid?.tiles || [];
+  const waterTileKeys = new Set(fluidTiles.filter((t) => t.type === 'water').map(({ coords: [tx, ty] }) => `${tx},${ty}`));
+  const lavaTileKeys = new Set(fluidTiles.filter((t) => t.type === 'lava').map(({ coords: [tx, ty] }) => `${tx},${ty}`));
 
   for (let y = 0; y < rows; y += 1) {
     const row = Array.isArray(layout[y]) ? layout[y] : [];
@@ -56,13 +59,20 @@ function createTileMapTexture(map, dimensions, config = APP_CONFIG) {
       const coords = resolveEmojiTile(emoji, x, y, mapType) || fallback;
       const tx = Math.max(0, Math.min(255, Number(coords[0]) || 0));
       const ty = Math.max(0, Math.min(255, Number(coords[1]) || 0));
+      const tileKey = `${tx},${ty}`;
+
+      let animFlag = 0;
+      if (treeSwayTileKeys.has(tileKey)) animFlag = 255;
+      else if (waterTileKeys.has(tileKey)) animFlag = 128;
+      else if (lavaTileKeys.has(tileKey)) animFlag = 64;
 
       data[offset] = tx;
       data[offset + 1] = ty;
-      data[offset + 2] = treeSwayTileKeys.has(`${tx},${ty}`) ? 255 : 0;
+      data[offset + 2] = animFlag;
       data[offset + 3] = 255;
     }
   }
+
 
   const texture = new THREE.DataTexture(data, Math.max(1, cols), Math.max(1, rows), THREE.RGBAFormat);
   texture.magFilter = THREE.NearestFilter;
